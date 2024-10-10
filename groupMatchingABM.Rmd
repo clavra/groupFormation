@@ -1,0 +1,230 @@
+---
+title: "groupFormation"
+author: "Clara Lavrador"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+### Life Cycle
+
+## Model
+
+### Packages 
+```{r packages}
+
+library(ggplot2)
+
+```
+
+
+### Parameters
+```{r parameters}
+
+popSize <- 50
+
+pursuitRange <- c(1:5)
+
+numTests <- 10
+
+w <- 0.5
+
+grades <- c(1:5)
+
+```
+
+
+### Functions
+```{r functions}
+
+
+#Agent Generate Function#
+agentGenerate <- function(n){
+  
+  allianceScore <- sample(c(1:20), n, replace = T)
+  
+  agents <- data.frame(allianceScore)
+  
+  return(agents)
+  
+}
+
+
+#Overlap Score Function#
+
+overlap <- function(agent, adjMat) {
+     
+  
+       #Alliance#
+      alliance <- apply(adjMat, 1, function(x)
+        cor(x, adjMat[agent, ], use = "complete.obs"))
+      
+      alliance [is.na(alliance)] <- 0
+      
+      alliance <- ifelse(alliance != 0, alliance + 1, 0)
+      
+     
+      #Displacement#
+      displacement <- apply(adjMat, 2, function(x)
+        cor(x, adjMat[agent, ], use = "complete.obs"))
+      
+      displacement [is.na(displacement)] <- 0
+      
+      displacement <- ifelse(displacement != 0, displacement + 1, 0)
+      
+      
+      
+      #Defense#
+      defense <- apply(adjMat, 1, function(x)
+        cor(x, adjMat[, agent], use = "complete.obs"))
+      
+      defense [is.na(defense)] <- 0
+      
+      defense <- ifelse(defense != 0, defense + 1, 0)
+      
+      
+      
+      #Generalization#
+      generalization <- apply(adjMat, 2, function(x)
+        cor(x, adjMat[, agent], use = "complete.obs"))
+      
+      generalization [is.na(generalization)] <- 0
+      
+      generalization <- ifelse(generalization != 0, generalization + 1, 0)
+      
+      
+      
+      #Add together
+      overlap_scores <- alliance + displacement + generalization + defense
+      
+      overlap_scores[agent] <- NA
+      
+      return(overlap_scores)
+      
+    }
+    
+  
+#Reciprocity Function#
+
+reciprocity <- function(agent, adjMat){
+  
+  received <- adjMat[,agent]
+  
+  sent <- adjMat[agent,]
+    
+  reciprocity_scores <- 2*(received / (received + sent))
+  
+  reciprocity_scores[agent] <- NA
+  
+  return(reciprocity_scores)
+  
+  
+}
+  
+
+
+
+```
+
+
+### Life Cycle
+
+```{r lifeCycle}
+
+agents <- agentGenerate(popSize)
+
+adjMat <- matrix(1, nrow = popSize, ncol = popSize)
+
+matrix_list <- list(adjMat)
+
+noncumMat_list <- list(adjMat)
+
+
+for(t in 2:numTests){
+  
+  noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agents)){
+    
+    overlap_scores <- overlap(a, matrix_list[[t-1]])
+    
+    reciprocity_scores <- reciprocity(a, matrix_list[[t-1]])
+    
+    alliance_values <- agents$allianceScore       # !!!! check here, maybe should normalize first
+    
+    #Combine overlap, reciprocity, and alliance scores into single calculation
+    pursuit_scores <- (overlap_scores + reciprocity_scores) * alliance_values
+    
+    #Randomize number of pursuits for the agent
+    pursuitAmount <- sample(pursuitRange, 1, replace = T)
+    
+    #sort by product in descending order and get the indices of the top agents
+    pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
+    
+    #add them to the adjacency matrix
+    adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
+    
+    #and to the individual ones
+    noncumMat[a, pursuit_indices] <- 1
+
+    
+  }
+  
+  matrix_list[[t]] <- adjMat
+  
+  noncumMat_list[[t]] <- noncumMat
+  
+}
+
+
+
+
+
+
+
+```
+
+### Analysis
+
+```{r analysis}
+
+igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix) 
+
+
+#keep only reciprocal edges
+for(g in 1:length(igraph_list)){
+  
+  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])], delete.vertices = F)
+  
+}
+
+plot(igraph_list[[9]], 
+     layout = layout.fruchterman.reingold, 
+     vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     vertex.label.color = "grey25",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
