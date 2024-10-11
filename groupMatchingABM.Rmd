@@ -27,15 +27,16 @@ library(ggplot2)
 ### Parameters
 ```{r parameters}
 
-popSize <- 50
+popSize <- 100
 
 pursuitRange <- c(1:5)
 
-numTests <- 10
+pursuitAmount <- 4
+
+numTests <- 100
 
 w <- 0.5
 
-grades <- c(1:5)
 
 ```
 
@@ -47,13 +48,42 @@ grades <- c(1:5)
 #Agent Generate Function#
 agentGenerate <- function(n){
   
-  allianceScore <- sample(c(1:20), n, replace = T)
+  trait1 <- sample(c(1:100), n, replace = T)
   
-  agents <- data.frame(allianceScore)
+  trait2 <- sample(c(1:100), n, replace = T)
+  
+  trait3 <- sample(c(1:100), n, replace = T)
+  
+  pref1 <- sample(c(1:100), n, replace = T)
+  
+  pref2 <- sample(c(1:100), n, replace = T)
+  
+  pref3 <- sample(c(1:100), n, replace = T)
+  
+  
+  agents <- data.frame(trait1, trait2, trait3, pref1, pref2, pref3)
   
   return(agents)
   
 }
+
+#Alliance Score Function#
+
+alliance <- function(agent, agents){
+  
+  for (i in 1:nrow(agents)){
+    
+    trait_cols <- agents[c("trait1","trait2","trait3")]
+    
+    pref_cols <- agents[c("pref1","pref2","pref3")]
+    
+    alliance_value[i] <- dist(pref_cols[agent,], trait_cols[i,], method = "euclidean")
+    
+  }
+  
+}
+
+
 
 
 #Overlap Score Function#
@@ -139,6 +169,8 @@ reciprocity <- function(agent, adjMat){
 
 agents <- agentGenerate(popSize)
 
+#adjMat <- matrix(sample(1:2, 2*popSize, replace = T), nrow = popSize, ncol = popSize)
+
 adjMat <- matrix(1, nrow = popSize, ncol = popSize)
 
 matrix_list <- list(adjMat)
@@ -159,10 +191,10 @@ for(t in 2:numTests){
     alliance_values <- agents$allianceScore       # !!!! check here, maybe should normalize first
     
     #Combine overlap, reciprocity, and alliance scores into single calculation
-    pursuit_scores <- (overlap_scores + reciprocity_scores) * alliance_values
+    pursuit_scores <- (overlap_scores + reciprocity_scores) * (alliance_values)
     
     #Randomize number of pursuits for the agent
-    pursuitAmount <- sample(pursuitRange, 1, replace = T)
+    #pursuitAmount <- sample(pursuitRange, 1, replace = T)
     
     #sort by product in descending order and get the indices of the top agents
     pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -202,11 +234,13 @@ for(g in 1:length(igraph_list)){
   
   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])], delete.vertices = F)
   
+  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  
 }
 
-plot(igraph_list[[9]], 
+plot(igraph_list[[2]], 
      layout = layout.fruchterman.reingold, 
-     vertex.label = NA,
+     #vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
