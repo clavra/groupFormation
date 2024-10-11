@@ -33,10 +33,11 @@ pursuitRange <- c(1:5)
 
 pursuitAmount <- 4
 
-numTests <- 100
+reassessments <- 20
 
-w <- 0.5
+modelLoops <- 10
 
+maxEuc <- 174
 
 ```
 
@@ -69,19 +70,30 @@ agentGenerate <- function(n){
 
 #Alliance Score Function#
 
+#Euclidean distance function
+euc.dist <- function(x1, x2) sqrt(sum((x1 - x2) ^ 2))
+
+
 alliance <- function(agent, agents){
+
+    
+    trait_cols <- agents[, c("trait1","trait2","trait3")]
+    
+    pref_cols <- agents[agent, c("pref1","pref2","pref3")]
+    
+   alliance_values <- apply(trait_cols, 1, function(trait_row) {
+     euc.dist(pref_cols, trait_row)
   
-  for (i in 1:nrow(agents)){
+     
+   })
     
-    trait_cols <- agents[c("trait1","trait2","trait3")]
-    
-    pref_cols <- agents[c("pref1","pref2","pref3")]
-    
-    alliance_value[i] <- dist(pref_cols[agent,], trait_cols[i,], method = "euclidean")
-    
+   alliance_values <- 1 - (alliance_values/maxEuc)
+   
+   return(alliance_values)
+   
   }
   
-}
+
 
 
 
@@ -158,6 +170,15 @@ reciprocity <- function(agent, adjMat){
 }
   
 
+#Analysis Function#
+
+remove_isolates <- function(g) {
+  g.degree <- igraph::degree(g)
+  g.isolates <- V(g)[which(g.degree < 1)]
+  return(delete_vertices(g, g.isolates))
+}
+
+
 
 
 ```
@@ -167,54 +188,101 @@ reciprocity <- function(agent, adjMat){
 
 ```{r lifeCycle}
 
-agents <- agentGenerate(popSize)
+#u need to find a way to get reciprocal edges out q nao seja in graphing
+#you have to save each iteration's number of recip edges
 
-#adjMat <- matrix(sample(1:2, 2*popSize, replace = T), nrow = popSize, ncol = popSize)
-
-adjMat <- matrix(1, nrow = popSize, ncol = popSize)
-
-matrix_list <- list(adjMat)
-
-noncumMat_list <- list(adjMat)
+results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
+                      "reassess" = rep(1:reassessments),
+                      "num_groups" = NA,
+                      "num_recip_edges" = NA)
 
 
-for(t in 2:numTests){
+
+
+for(m in 1:modelLoops) {
   
-  noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
-  
-  for(a in 1:nrow(agents)){
-    
-    overlap_scores <- overlap(a, matrix_list[[t-1]])
-    
-    reciprocity_scores <- reciprocity(a, matrix_list[[t-1]])
-    
-    alliance_values <- agents$allianceScore       # !!!! check here, maybe should normalize first
-    
-    #Combine overlap, reciprocity, and alliance scores into single calculation
-    pursuit_scores <- (overlap_scores + reciprocity_scores) * (alliance_values)
-    
-    #Randomize number of pursuits for the agent
-    #pursuitAmount <- sample(pursuitRange, 1, replace = T)
-    
-    #sort by product in descending order and get the indices of the top agents
-    pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
-    
-    #add them to the adjacency matrix
-    adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
-    
-    #and to the individual ones
-    noncumMat[a, pursuit_indices] <- 1
+  #generate agents
+  agents <- agentGenerate(popSize)
 
+  #generate adjacency matrix (populate with 1)
+  adjMat <- matrix(1, nrow = popSize, ncol = popSize)
+  
+  #initialize list to store the cumulative adjacency matrix to get number of sents/receives over time (reference for overlap and reciprocity)
+  #store each reassessment period's adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
+  matrix_list <- list(adjMat)
+  
+  #initialize list to store each reassessment's adjacency matrix as binary for that iteration so you can derive the groups that form
+  noncumMat_list <- list(adjMat)
+
+  #for each reassessment...
+  for (t in 2:reassessments) {
+    
+    #create the empty noncumulative adjacency matrix 
+    noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+    
+    #for each agent...
+    for (a in 1:nrow(agents)) {
+      
+      #calculate the overlap scores between themselves and each 
+      overlap_scores <- overlap(a, matrix_list[[t - 1]])
+      
+      reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
+      
+      alliance_values <- alliance(a, agents)
+      
+      #Combine overlap, reciprocity, and alliance scores into single calculation
+      pursuit_scores <- (overlap_scores + reciprocity_scores) * (alliance_values)
+      
+      #Randomize number of pursuits for the agent
+      #pursuitAmount <- sample(pursuitRange, 1, replace = T)
+      
+      #sort by product in descending order and get the indices of the top agents
+      pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
+      
+      #add them to the adjacency matrix
+      adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
+      
+      #and to the individual ones
+      noncumMat[a, pursuit_indices] <- 1
+      
+      
+    }
+    
+    matrix_list[[t]] <- adjMat
+    noncumMat_list[[t]] <- noncumMat
     
   }
   
-  matrix_list[[t]] <- adjMat
+  no_isolates_igraph <- lapply(noncumMat_list, graph_from_adjacency_matrix)
   
-  noncumMat_list[[t]] <- noncumMat
+  for (g in 1:length(no_isolates_igraph)) {
+    no_isolates_igraph[[g]] <- subgraph.edges(no_isolates_igraph[[g]],
+                     E(no_isolates_igraph[[g]])[which_mutual(no_isolates_igraph[[g]])],
+                     delete.vertices = F)
+    
+    results$num_recip_edges[results$loop == m &
+                              results$reassess == g] <- (length(subgraph.edges(no_isolates_igraph[[g]], E(no_isolates_igraph[[g]])[which_mutual(no_isolates_igraph[[g]])]
+      )))
+    
+  }
+  
+  for (g in 1:length(no_isolates_igraph)) {
+    if (g > 1) {
+      g.degree <- igraph::degree(no_isolates_igraph[[g]])
+      g.isolates <- V(no_isolates_igraph[[g]])[which(g.degree < 1)]
+      no_isolates_igraph[[g]] <- delete_vertices(no_isolates_igraph[[g]], g.isolates)
+      
+      results$num_groups[results$loop == m & results$reassess == g] <- components(no_isolates_igraph[[g]])$no
+      
+    } else {
+      
+      results$num_groups[results$loop == m & results$reassess == g] <- 0
+      
+    }
+    
+  }
   
 }
-
-
 
 
 
@@ -226,10 +294,12 @@ for(t in 2:numTests){
 
 ```{r analysis}
 
-igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix) 
+
+#Igraph Package#
+
+igraph_list <- lapply(noncumMat_list, igraph::graph_from_adjacency_matrix) 
 
 
-#keep only reciprocal edges
 for(g in 1:length(igraph_list)){
   
   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])], delete.vertices = F)
@@ -238,7 +308,9 @@ for(g in 1:length(igraph_list)){
   
 }
 
-plot(igraph_list[[2]], 
+
+
+plot(no_isolates[[20]], 
      layout = layout.fruchterman.reingold, 
      #vertex.label = NA,
      #  rescale = F,
@@ -248,6 +320,41 @@ plot(igraph_list[[2]],
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
 
+
+
+### no isolates so we can get the number of groups for each graph
+
+
+no_isolates <- igraph_list
+
+for(g in 1:length(no_isolates)){
+  
+  g.degree <- igraph::degree(no_isolates[[g]])
+  g.isolates <- V(no_isolates[[g]])[which(g.degree < 1)]
+  no_isolates[[g]] <- delete_vertices(no_isolates[[g]], g.isolates)
+  
+}
+
+
+
+
+
+
+
+#Network Package#
+
+networkList <- lapply(igraph_list, asNetwork)
+
+
+
+#dynamic net
+
+dynamicNet <- networkDynamic(network.list = networkList, 
+                                 vertex.pid = "vertex.names",
+                                 create.TEAs = T)
+
+
+render.d3movie(dynamicNet)
 
 ```
 
