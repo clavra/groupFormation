@@ -9,10 +9,71 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Model Overview
 
+### Purpose
+
+
+### Agents
+
+Each agent will have a set of three traits and three preferences, which are randomly assigned from 0-100. 
+They will also have a number of pursuits they can make per regrouping period.
 
 
 ### Life Cycle
+
+1. Gather info
+2. Pursue agents
+3. Regroup
+
+#### Gather info
+
+Each agent will calculate three scores with respect to other agents: alliance value, reciprocity score, and overlap score.
+
+The alliance value is calculated by taking the euclidean distance of the agent's preferences with the other agents' traits. 
+
+The reciprocity score is the proportion of pursuits between the agent and each other agent that are reciprocated.
+
+The overlap score is a measurement of pursuit similarity (both sent and received) between the agent and each other agent, with respect to third parties.
+  It is based on David Pietraszewski's triadic primitives, whereby:
+   
+     alliance is the correlation between the agent and each other agents' sent pursuits (i.e., how much they pursue the same agents)
+     
+     generalization is the correlation between the agent and each other agents' received pursuits (i.e., how much they are pursued by the same agents)
+     
+     displacement is the correlation between the agent's sent pursuits and each other agents' received pursuits (i.e., how much the agents that agent b pursues pursue agent a)
+     
+     defense is the correlation between the agent's received and each other agents' sent pursuits (i.e., how much the agents that agent a is pursued by are pursued by agent b)
+
+  
+These three scores are then formulated to produce a single pursuit score:
+
+  pursuit value = alliance value + (reciprocity score + overlap score)
+
+
+#### Pursue agents
+
+Each agent will pursue the agents with the highest pursuit values. 
+
+Sent and received pursuits will be accumulated (and thus used to calculate overlap in the next reassessment period) 
+
+#### Regroup
+
+Agents who have reciprocated pursuits with each other will be considered "grouped" together for that reassessment period.
+
+Then it all begins anew until the max number of reassessment periods has been reached.
+
+
+### Analysis
+
+For now I'm plotting the number of reciprocated edges over time across all model loops.
+But I must think of a better representation... number of groups only tells half the story (bc they still differ in size)
+
+Best thing would be to see if the model loops converge in some other aspect(s)
+
+Also I could compare it to a model that does not include overlap score
+
+
 
 ## Model
 
@@ -222,11 +283,11 @@ reciprocity <- function(agent, adjMat){
 
 ```{r lifeCycle}
 
+start.time <- Sys.time()
 
 #initialize results df
 results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
                       "reassess" = rep(1:reassessments),
-                      "num_groups" = NA,
                       "num_recip_edges" = NA)
 
 
@@ -309,34 +370,37 @@ for(m in 1:modelLoops) {
   
   #count number of groups
   
-  no_isolates_igraph <- igraph_list
-  
-  for (g in 1:length(no_isolates_igraph)) {
-    
-    if (g > 1) {
-      
-      #first must delete the isolates or they will be counted as individual groups
-      g.degree <- igraph::degree(no_isolates_igraph[[g]])
-      g.isolates <- V(no_isolates_igraph[[g]])[which(g.degree < 1)]
-      no_isolates_igraph[[g]] <- delete_vertices(no_isolates_igraph[[g]], g.isolates)
-      
-      #add to results df
-      results$num_groups[results$loop == m & results$reassess == g] <- components(no_isolates_igraph[[g]])$no
-      
-    } else {
-      
-      #the first plot should have no edges at all
-      results$num_groups[results$loop == m & results$reassess == g] <- 0
-      
-    }
-    
-  }
+  # no_isolates_igraph <- igraph_list
+  # 
+  # for (g in 1:length(no_isolates_igraph)) {
+  #   
+  #   if (g > 1) {
+  #     
+  #     #first must delete the isolates or they will be counted as individual groups
+  #     g.degree <- igraph::degree(no_isolates_igraph[[g]])
+  #     g.isolates <- V(no_isolates_igraph[[g]])[which(g.degree < 1)]
+  #     no_isolates_igraph[[g]] <- delete_vertices(no_isolates_igraph[[g]], g.isolates)
+  #     
+  #     #add to results df
+  #     results$num_groups[results$loop == m & results$reassess == g] <- components(no_isolates_igraph[[g]])$no
+  #     
+  #   } else {
+  #     
+  #     #the first plot should have no edges at all
+  #     results$num_groups[results$loop == m & results$reassess == g] <- 0
+  #     
+  #   }
+  #   
+  # }
   
 }
 
 #the first reassess from each loop displays recip edge number as popSize because of intial matrix set up, so fix to 0
 results$num_recip_edges[results$reassess == 1] <- 0
 
+end.time <- Sys.time()
+
+print(end.time - start.time)
 
 ```
 
@@ -358,36 +422,10 @@ ggplot(data = results,
   geom_line()
 
 
-#Group Count Plot#
-#see how number of groups changes over time across all model loops
-ggplot(data = results,
-       aes(x = reassess,
-           y = num_groups,
-           color = as.factor(loop))) +
-  labs(x = "regroup period",
-       y = "number of groups",
-       color = "model loop") +
-  geom_smooth(fill = as.factor(loop)) +
-  theme_bw()
-
 
 
 ### Plotting Networks
 #we shall a dynamic network of just one loop (the last one)
-
-
-
-#igraph list should already exist
-# igraph_list <- lapply(noncumMat_list, igraph::graph_from_adjacency_matrix) 
-# 
-# for(g in 1:length(igraph_list)){
-#   
-#   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])], delete.vertices = F)
-#   
-#   print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-#   
-# }
-
 
 #convert the igraph to network objects
 networkList <- lapply(igraph_list, asNetwork)
@@ -396,7 +434,6 @@ networkList <- lapply(igraph_list, asNetwork)
 #create dynamic network from network list
 dynamicNet <- networkDynamic(network.list = networkList, 
                                  vertex.pid = "vertex.names",
-                                 base.net = 
                                  create.TEAs = T,)
 
 #render the movie (oscar nominee?)
@@ -406,12 +443,8 @@ render.d3movie(dynamicNet)
 
 
 
-
-
-
-
-# plot(igraph_list[[20]], 
-#      layout = layout.fruchterman.reingold, 
+# plot(igraph_list[[20]],
+#      layout = layout.fruchterman.reingold,
 #      #vertex.label = NA,
 #      #  rescale = F,
 #      layout = layout_with_kk,
@@ -419,8 +452,8 @@ render.d3movie(dynamicNet)
 #      vertex.label.color = "grey25",
 #      vertex.shape = "circle",
 #      edge.arrow.size = 0.3)
-# 
-# 
+
+
 # 
 # ### no isolates so we can get the number of groups for each graph
 # 
