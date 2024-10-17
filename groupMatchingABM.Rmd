@@ -99,10 +99,10 @@ popSize <- 100
 pursuitRange <- c(1:5)
 
 #number of pursuits each agent will have for each reassessment period
-pursuitAmount <- 4
+pursuitAmount <- 2
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 30
+reassessments <- 50
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -134,9 +134,25 @@ agentGenerate <- function(n){
 }
 
 
+weighted_jaccard <- function(x, y) {
+  # Calculate the numerator: Sum of minimum intensities
+  numerator <- sum(pmin(x, y))
+  
+  # Calculate the denominator: Sum of maximum intensities
+  denominator <- sum(pmax(x, y))
+  
+  # Handle edge case where denominator is 0 (all zeros)
+  if (denominator == 0) return(0)
+  
+  # Calculate weighted Jaccard similarity
+  similarity <- numerator / denominator
+  return(similarity)
+}
+
 
 #Overlap Score Function#
 #calculates overlap between input agent and all other agents by comparing their sent and received pursuits; based on Dave's triadic primitives
+
 
 overlap <- function(agent, adjMat) {
      
@@ -145,10 +161,10 @@ overlap <- function(agent, adjMat) {
        #calculate correlation of agent's row with other agents' rows
   
       alliance <- apply(adjMat, 1, function(x)
-        cor(x, adjMat[agent, ], use = "complete.obs"))
+        weighted_jaccard(x, adjMat[agent, ]))
       
       #change NAs to 0
-      alliance [is.na(alliance)] <- 0
+      #alliance [is.na(alliance)] <- 0
       
       #add 1 to make them positive 
       alliance <- alliance + 1   
@@ -159,10 +175,10 @@ overlap <- function(agent, adjMat) {
       #calculate correlation of agent's row with other agents' columns
       
       displacement <- apply(adjMat, 2, function(x)
-        cor(x, adjMat[agent, ], use = "complete.obs"))
+        weighted_jaccard(x, adjMat[agent, ]))
       
       #change NAs to 0
-      displacement [is.na(displacement)] <- 0
+      #displacement [is.na(displacement)] <- 0
       
       #add 1 to make them positive
       displacement <- displacement + 1
@@ -174,10 +190,10 @@ overlap <- function(agent, adjMat) {
       #calculate correlation of agent's column with other agents' rows
       
       defense <- apply(adjMat, 1, function(x)
-        cor(x, adjMat[, agent], use = "complete.obs"))
+        weighted_jaccard(x, adjMat[, agent]))
       
       #change NAs to 0
-      defense [is.na(defense)] <- 0
+      #defense [is.na(defense)] <- 0
       
       #add 1 to make them positive
       defense <- defense + 1
@@ -189,10 +205,10 @@ overlap <- function(agent, adjMat) {
       #calculate correlation of agent's column with other agents' columns
       
       generalization <- apply(adjMat, 2, function(x)
-        cor(x, adjMat[, agent], use = "complete.obs"))
+        weighted_jaccard(x, adjMat[, agent]))
       
       #change NAs to 0
-      generalization [is.na(generalization)] <- 0
+      #generalization [is.na(generalization)] <- 0
       
       #add 1 to make them positive
       generalization <- generalization + 1
@@ -204,6 +220,8 @@ overlap <- function(agent, adjMat) {
       
       overlap_scores[agent] <- NA
       
+      #print(cbind(alliance, displacement, generalization, defense))
+ 
       return(overlap_scores)
       
     }
@@ -221,6 +239,10 @@ reciprocity <- function(agent, adjMat){
     
   #calculate proportions of pursuits which were received, multiply by 2 to match overlap components' range
   reciprocity_scores <- 2*(received / (received + sent))
+  
+  
+  
+  
   
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
@@ -403,15 +425,62 @@ render.d3movie(dynamicNet)
 
 
 
-# plot(igraph_list[[20]],
-#      layout = layout.fruchterman.reingold,
-#      #vertex.label = NA,
-#      #  rescale = F,
-#      layout = layout_with_kk,
-#      vertex.size = 8,
-#      vertex.label.color = "grey25",
-#      vertex.shape = "circle",
-#      edge.arrow.size = 0.3)
+plot(igraph_list[[50]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     vertex.label.color = "grey25",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
+maxGroupSize <- lapply()
+
+igraph_results <- data.frame(
+                      "reassess" = rep(1:reassessments, each = 5),
+                      "groupSize" = rep(1:5),
+                      "proportion" = NA)
+
+
+length(igraph::components(igraph_list[[40]])$csize[igraph::components(igraph_list[[40]])$csize > 1])
+
+
+for (r in 1:length(igraph_list)) {
+    
+
+    prop1 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 1])/igraph::components(igraph_list[[r]])$no
+    
+    prop2 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 2])/igraph::components(igraph_list[[r]])$no
+    
+    prop3 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 3])/igraph::components(igraph_list[[r]])$no
+    
+    prop4 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 4])/igraph::components(igraph_list[[r]])$no
+    
+    prop5 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 5])/igraph::components(igraph_list[[r]])$no
+    
+  
+    #add number of reciprocal edges to results df
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 1] <- prop1
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 2] <- prop2
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 3] <- prop3
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 4] <- prop4
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 5] <- prop5
+
+}
+    
+
+ggplot(data = igraph_results,
+       aes(x = reassess,
+           y = proportion,
+           color = as.factor(groupSize))) +
+  labs(x = "regroup period",
+       y = "proportion of groups of size x",
+       color = "group size") +
+  geom_line()
+
+
 
 
 # 
@@ -427,9 +496,6 @@ render.d3movie(dynamicNet)
 #   no_isolates[[g]] <- delete_vertices(no_isolates[[g]], g.isolates)
 #   
 # }
-
-
-
 
 
 
