@@ -288,8 +288,8 @@ results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
 
 
 
-
-for(m in 1:modelLoops) {
+#commenting out model loops for now
+#for(m in 1:modelLoops) {
   
   #generate agents
   agents <- agentGenerate(popSize)
@@ -349,54 +349,26 @@ for(m in 1:modelLoops) {
   
   
   #convert the noncum adjacency matrices into igraph networks
-  igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
-  
-  #loop through each igraph object
-  for (g in 1:length(igraph_list)) {
-    
-    #only include edges that are reciprocated
-    igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                              E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                              delete.vertices = F) #maybe i can just do this with true to get groups
-    
-    #add number of reciprocal edges to results df
-    print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-
-    
-    
-    
-  }
-  #results$num_recip_edges[results$loop == m & results$reassess == g]
-  
-  #count number of groups
-  
-  # no_isolates_igraph <- igraph_list
+  # igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
   # 
-  # for (g in 1:length(no_isolates_igraph)) {
+  # #loop through each igraph object
+  # for (g in 1:length(igraph_list)) {
   #   
-  #   if (g > 1) {
-  #     
-  #     #first must delete the isolates or they will be counted as individual groups
-  #     g.degree <- igraph::degree(no_isolates_igraph[[g]])
-  #     g.isolates <- V(no_isolates_igraph[[g]])[which(g.degree < 1)]
-  #     no_isolates_igraph[[g]] <- delete_vertices(no_isolates_igraph[[g]], g.isolates)
-  #     
-  #     #add to results df
-  #     results$num_groups[results$loop == m & results$reassess == g] <- components(no_isolates_igraph[[g]])$no
-  #     
-  #   } else {
-  #     
-  #     #the first plot should have no edges at all
-  #     results$num_groups[results$loop == m & results$reassess == g] <- 0
-  #     
-  #   }
+  #   #only include edges that are reciprocated
+  #   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+  #                                             E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+  #                                             delete.vertices = F) #maybe i can just do this with true to get groups
   #   
-  # }
-  
-}
+  #   #add number of reciprocal edges to results df
+  #   print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  # 
+  #   
+    
+ # }
+#}
 
 #the first reassess from each loop displays recip edge number as popSize because of intial matrix set up, so fix to 0
-results$num_recip_edges[results$reassess == 1] <- 0
+#results$num_recip_edges[results$reassess == 1] <- 0
 
 end.time <- Sys.time()
 
@@ -431,71 +403,9 @@ print(end.time - start.time)
   }
 
 
-## single plot syntax
-# you can plot any for fun
 
-plot(igraph_list[[4]],
-     layout = layout.fruchterman.reingold,
-     #vertex.label = NA,
-     #  rescale = F,
-     layout = layout_with_kk,
-     vertex.size = 8,
-     vertex.label.color = "grey25",
-     vertex.shape = "circle",
-     edge.arrow.size = 0.3)
-
-
-igraph::components(igraph_list[[155]])
-
-
-## Plot group size
-# plot the prevalence of different sized groups over time (reassessment periods)
-
-igraph_results <- data.frame(
-                      "reassess" = rep(1:reassessments, each = 5),
-                      "groupSize" = rep(1:5),
-                      "proportion" = NA)
-
-
-for (r in 1:length(igraph_list)) {
-    
-
-    prop1 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 1])/igraph::components(igraph_list[[r]])$no
-    
-    prop2 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 2])/igraph::components(igraph_list[[r]])$no
-    
-    prop3 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 3])/igraph::components(igraph_list[[r]])$no
-    
-    prop4 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 4])/igraph::components(igraph_list[[r]])$no
-    
-    prop5 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 5])/igraph::components(igraph_list[[r]])$no
-    
-    
-  
-    #add number of reciprocal edges to results df
-    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 1] <- prop1
-    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 2] <- prop2
-    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 3] <- prop3
-    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 4] <- prop4
-    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 5] <- prop5
-
-}
-   
-#plot it
-ggplot(data = igraph_results,
-       aes(x = reassess,
-           y = proportion,
-           color = as.factor(groupSize))) +
-  labs(title = "Prevalence of different sized groups over reassesments",
-       subtitle = "(reciprocity(0-1) * overlap(0-1)) * alliance(0-1)",
-       x = "reassessment period",
-       y = "percent of groups of size x",
-       color = "group size") +
-  geom_line()
-
-
-
-## cliques 
+## clique data
+# cliques differ from groups in that the subgraphs must be interconnected to be counted as clique
 
 clique_results <- data.frame("reassessment" = 1:reassessments,
                              "percentInClique" = NA)
@@ -513,12 +423,12 @@ for (r in 1:length(igraph_list)) {
 clique_results$percentInClique[clique_results$reassessment == 1] <- 0
 
 
-#plot it
+#plot to see percent of agents that are part of a clique (3+ agents) across regrouping periods
 ggplot(data = clique_results,
        aes(x = reassessment,
            y = percentInClique)) +
   labs(title = "Percent of agents in cliques per reassessment",
-       subtitle = "(reciprocity(0-1) + overlap(0-4)) * alliance(0-1)",
+       subtitle = "reciprocity(0-1) * overlap(0-1) * alliance(0-1)",
        x = "reassessment period",
        y = "percent of agents in a clique (3+)") +
   geom_line()
@@ -586,6 +496,42 @@ for (r in 1:length(igraph_list)) {
         weighted_jaccard(x, adjMat[, agent])
       })
       
+      
+## Plot group size
+# plot the prevalence of different sized groups over time (reassessment periods)
+
+igraph_results <- data.frame(
+                      "reassess" = rep(1:reassessments, each = 5),
+                      "groupSize" = rep(1:5),
+                      "proportion" = NA)
+
+
+   
+#plot it
+ggplot(data = igraph_results,
+       aes(x = reassess,
+           y = proportion,
+           color = as.factor(groupSize))) +
+  labs(title = "Prevalence of different sized groups over reassesments",
+       subtitle = "(reciprocity(0-1) * overlap(0-1)) * alliance(0-1)",
+       x = "reassessment period",
+       y = "percent of groups of size x",
+       color = "group size") +
+  geom_line()
+
+
+## single plot syntax
+# you can plot any for fun
+
+plot(igraph_list[[4]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     vertex.label.color = "grey25",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
 
 ```
 
