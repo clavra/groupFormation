@@ -262,6 +262,17 @@ reciprocity <- function(agent, adjMat){
 }
   
 
+#compare edges between two graphs
+
+edge_compare <- function(graph1,graph2){
+  
+  sameEdges <- length(intersect(E(graph1),E(graph2)))
+  
+  return(sameEdges)
+  
+}
+
+
 
 ```
 
@@ -378,7 +389,7 @@ print(end.time - start.time)
 #convert the noncum adjacency matrices into igraph networks to see groups over time
 #deleting non recip edges instead of denoting them makes dynamic net run much faster
 
-  igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
+  igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
   
   #loop through each igraph object
   for (g in 1:length(igraph_list)) {
@@ -396,8 +407,8 @@ print(end.time - start.time)
 
 
 
-## clique data
-# cliques differ from groups in that the subgraphs must be interconnected to be counted as clique
+## Clique data
+#cliques differ from groups in that the subgraphs must be interconnected to be counted as clique
 
 clique_results <- data.frame("reassessment" = rep(1:reassessments, each = 4),
                              "percentInClique" = NA, #percent of agents in cliques of 3+
@@ -419,12 +430,17 @@ for (r in 1:length(igraph_list)) {
   cliques_four <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 4, max = 4))))/popSize
   isolates <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 1, max = 1))))/popSize
   
+  #get number of constant edges between each reassessment
+  constant_edges <- edge_compare(igraph_list[[r]], igraph_list[[r+1]])
+
+  
   #add to results df
   clique_results$percentInClique[clique_results$reassess == r] <- percentInClique
   clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 1] <- isolates
   clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 2] <- cliques_two
   clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 3] <- cliques_three
   clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 4] <- cliques_four
+  clique_results$constant_edges[clique_results$reassessment == r+1] <- constant_edges
   
 }
 
@@ -444,6 +460,16 @@ ggplot(data = clique_results,
   geom_line()
 
 
+#plot to see which edges remain constant over reassessment periods
+ggplot(data = clique_results,
+       aes(x = reassessment,
+           y = constant_edges)) +
+  labs(title = "Edge Constancy ",
+       x = "regrouping period",
+       y = "number of retained edges from previous regrouping") +
+  geom_smooth()
+
+
 #plot to see clique size distribution across regrouping periods
 #still trying to reword but basically, I am plotting the percent of agents whose max clique size is each of the clique sizes
 ggplot(data = clique_results,
@@ -456,9 +482,6 @@ ggplot(data = clique_results,
        y = "percent of agents in maximal clique",
        color = "clique size") +
   geom_smooth()
-
-
-
 
 
 
@@ -488,6 +511,22 @@ print(end.time - start.time)
 
 
 ```{r trash}
+
+#getting info on the isolates
+
+for(r in 1:length(igraph_list)){
+  
+print(V(igraph_list[[r]])[igraph::degree(igraph_list[[r]])==0])
+
+
+}
+
+
+
+
+
+
+
 
 for (r in 1:length(igraph_list)) {
     
@@ -552,12 +591,26 @@ ggplot(data = igraph_results,
 ## single plot syntax
 # you can plot any for fun
 
-plot(igraph_list[[345]],
+V(igraph_list[[350]])$alliance <- agents$alliance[match(V(igraph_list[[350]])$name, rownames(agents))]
+
+V(igraph_list[[350]])$color <- V(igraph_list[[350]])$
+
+  
+a = V(igraph_list[[350]])$alliance
+
+cols=setNames(colorRampPalette(c("blue", "red"))(length(unique(a))), sort(unique(a))) 
+
+vertex.color=cols[as.character(a)]
+
+
+  
+plot(igraph_list[[350]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
+     vertex.color = vertex.color,
      vertex.label.color = "grey25",
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
