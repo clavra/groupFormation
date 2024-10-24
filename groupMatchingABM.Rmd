@@ -96,13 +96,13 @@ library(ndtv)
 #number of agents to generate
 popSize <- 100
 
-pursuitRange <- c(1:5)
+#pursuitRange <- c(1:5)
 
 #number of pursuits each agent will have for each reassessment period
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <-275
+reassessments <-350
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -152,10 +152,6 @@ weighted_jaccard <- function(x, y) {
 
 #Overlap Score Function#
 #calculates overlap between input agent and all other agents by comparing their sent and received pursuits; based on Dave's triadic primitives
-
-
-
-    
 
 overlap <- function(agent, adjMat) {
   
@@ -258,15 +254,10 @@ reciprocity <- function(agent, adjMat){
   #calculate proportions of pursuits which were received, multiply by 2 to match overlap components' range
   reciprocity_scores <- (received / (received + sent))
   
-  
-  
-  
-  
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
   
   return(reciprocity_scores)
-  
   
 }
   
@@ -282,9 +273,9 @@ reciprocity <- function(agent, adjMat){
 start.time <- Sys.time()
 
 #initialize results df
-results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
-                      "reassess" = rep(1:reassessments),
-                      "num_recip_edges" = NA)
+# results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
+#                       "reassess" = rep(1:reassessments),
+#                       "num_recip_edges" = NA)
 
 
 
@@ -385,6 +376,7 @@ print(end.time - start.time)
 
 ## convert to igraph
 #convert the noncum adjacency matrices into igraph networks to see groups over time
+#deleting non recip edges instead of denoting them makes dynamic net run much faster
 
   igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
   
@@ -396,7 +388,7 @@ print(end.time - start.time)
                                               E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
                                               delete.vertices = F) #maybe i can just do this with true to get groups
     
-    #add number of reciprocal edges to results df
+    #just curious 
     print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
 
     
@@ -407,20 +399,38 @@ print(end.time - start.time)
 ## clique data
 # cliques differ from groups in that the subgraphs must be interconnected to be counted as clique
 
-clique_results <- data.frame("reassessment" = 1:reassessments,
-                             "percentInClique" = NA)
+clique_results <- data.frame("reassessment" = rep(1:reassessments, each = 4),
+                             "percentInClique" = NA, #percent of agents in cliques of 3+
+                             "cliqueSize" = rep(1:4), #clique sizes 1-4
+                             "percentOfSize" = NA)
+
 #for each reassessment period...
 for (r in 1:length(igraph_list)) {
   
-  #...get percent of agents in a clique
-  percentInClique <- length(unlist(max_cliques(igraph_list[[r]], min = 3)))/100
+  #...get percent of agents in a clique of at least 3
+  percentInClique <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3))))/popSize
+  
+  #get total number of cliques of 1,2,3,4 to serve as denominator
+  #total_cliques[r] <- count_max_cliques(igraph_list[[r]], min = 1)
+  
+  #get number of cliques of each size
+  cliques_two <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 2, max = 2))))/popSize
+  cliques_three <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3, max = 3))))/popSize
+  cliques_four <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 4, max = 4))))/popSize
+  isolates <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 1, max = 1))))/popSize
   
   #add to results df
   clique_results$percentInClique[clique_results$reassess == r] <- percentInClique
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 1] <- isolates
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 2] <- cliques_two
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 3] <- cliques_three
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 4] <- cliques_four
   
 }
 
 clique_results$percentInClique[clique_results$reassessment == 1] <- 0
+clique_results$percentOfSize[clique_results$reassessment == 1 & clique_results$cliqueSize == 1] <- popSize/100
+
 
 
 #plot to see percent of agents that are part of a clique (3+ agents) across regrouping periods
@@ -434,10 +444,28 @@ ggplot(data = clique_results,
   geom_line()
 
 
+#plot to see clique size distribution across regrouping periods
+#still trying to reword but basically, I am plotting the percent of agents whose max clique size is each of the clique sizes
+ggplot(data = clique_results,
+       aes(x = reassessment,
+           y = percentOfSize,
+           color = as.factor(cliqueSize))) +
+  labs(title = "Maximal Clique",
+       subtitle = "percent of agents whose maximal clique is of size 'clique size'",
+       x = "reassessment period",
+       y = "percent of agents in maximal clique",
+       color = "clique size") +
+  geom_smooth()
+
+
+
+
+
 
 ### Dynamic Network
-#we shall a dynamic network of just one loop (the last one)
+#we shall create dynamic network of one model loop
 
+start.time <- Sys.time()
 #convert the igraph to network objects
 networkList <- lapply(igraph_list, asNetwork)
 
@@ -450,8 +478,9 @@ dynamicNet <- networkDynamic(network.list = networkList,
 #render the movie (oscar nominee?)
 render.d3movie(dynamicNet, filename = "dynNet.html")
 
+end.time <- Sys.time()
 
-
+print(end.time - start.time)
 
 
 ```
@@ -523,7 +552,7 @@ ggplot(data = igraph_results,
 ## single plot syntax
 # you can plot any for fun
 
-plot(igraph_list[[4]],
+plot(igraph_list[[345]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -532,6 +561,30 @@ plot(igraph_list[[4]],
      vertex.label.color = "grey25",
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
+
+for (r in 1:length(igraph_list)) {
+  
+  #...get percent of agents in a clique of at least 3
+  percentInClique <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3))))/popSize
+  
+  #get total number of cliques of 1,2,3,4 to serve as denominator
+  total_cliques[r] <- count_max_cliques(igraph_list[[r]], min = 1)
+  
+  #get number of cliques of each size
+  cliques_two <- count_max_cliques(igraph_list[[r]], min = 2, max = 2)/total_cliques[r]
+  cliques_three <- count_max_cliques(igraph_list[[r]], min = 3, max = 3)/total_cliques[r]
+  cliques_four <- count_max_cliques(igraph_list[[r]], min = 4, max = 4)/total_cliques[r]
+  isolates <- count_max_cliques(igraph_list[[r]], min = 1, max = 1)/total_cliques[r]
+
+  #add to results df
+  clique_results$percentInClique[clique_results$reassess == r] <- percentInClique
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 1] <- isolates
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 2] <- cliques_two
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 3] <- cliques_three
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 4] <- cliques_four
+  
+}
+
 
 ```
 
