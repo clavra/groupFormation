@@ -135,6 +135,7 @@ agentGenerate <- function(n){
 
 
 weighted_jaccard <- function(x, y) {
+  
   # Calculate the numerator: Sum of minimum intensities
   numerator <- sum(pmin(x, y))
   
@@ -251,7 +252,7 @@ reciprocity <- function(agent, adjMat){
   #pull agent's row which represents their sent pursuits
   sent <- adjMat[agent,]
     
-  #calculate proportions of pursuits which were received, multiply by 2 to match overlap components' range
+  #calculate proportions of pursuits which were received
   reciprocity_scores <- (received / (received + sent))
   
   #nullify their own reciprocity score
@@ -389,22 +390,42 @@ print(end.time - start.time)
 #convert the noncum adjacency matrices into igraph networks to see groups over time
 #deleting non recip edges instead of denoting them makes dynamic net run much faster
 
-  igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
+igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
   
-  #loop through each igraph object
-  for (g in 1:length(igraph_list)) {
-    
-    #only include edges that are reciprocated
-    igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                              E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                              delete.vertices = F) #maybe i can just do this with true to get groups
-    
-    #just curious 
-    print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+#loop through each igraph object
+for (g in 1:length(igraph_list)) {
+  
+  #only include edges that are reciprocated
+  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+                                     E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+                                     delete.vertices = F) #maybe i can just do this with true to get groups
+  
+  #just curious
+  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  
+  
+}
 
-    
-  }
+#add vertex attributes
+for(r in 1:length(igraph_list)) {
+  
+  V(igraph_list[[r]])$name <- c(1:100)
+  
+  V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+}
 
+#Optional igraph plot (just change index)
+plot(igraph_list[[350]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "lightgrey",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
 
 
 ## Clique data
@@ -489,17 +510,46 @@ ggplot(data = clique_results,
 #we shall create dynamic network of one model loop
 
 start.time <- Sys.time()
-#convert the igraph to network objects
-networkList <- lapply(igraph_list, asNetwork)
 
+#Create Dynamic Network#
+#convert the igraph to network objects so we can make dynamic net
+networkList <- lapply(igraph_list, asNetwork)
 
 #create dynamic network from network list
 dynamicNet <- networkDynamic(network.list = networkList, 
                                  vertex.pid = "vertex.names",
                                  create.TEAs = T,)
 
-#render the movie (oscar nominee?)
-render.d3movie(dynamicNet, filename = "dynNet.html")
+#Vertex Attributes#
+#add alliance value and corresponding alliance value color as vertex attributes
+
+#create vector of unique alliance values in order 
+allianceVals <- sort(unique(agents$alliance))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on alliance values
+for (i in 1:nrow(agents)) {
+  
+  a <- agents$alliance[i]
+  
+  vertColors[i] <- cols[as.character(a)]
+}
+
+
+cbind(network.vertex.names(dynamicNet), rownames(agents)) #ensure they are the same
+
+#set the attributes
+network::set.vertex.attribute(dynamicNet, attrname = "alliance", value = agents$alliance, v = seq_along(network.vertex.names(dynamicNet))) 
+network::set.vertex.attribute(dynamicNet, attrname = "color", value = vertColors, v = seq_along(network.vertex.names(dynamicNet))) 
+
+
+#Render Movie#
+render.d3movie(dynamicNet, filename = "dynNet.html", vertex.col = dynamicNet %v% "color")
 
 end.time <- Sys.time()
 
@@ -508,25 +558,78 @@ print(end.time - start.time)
 
 ```
 
+```{r network}
+
+#Create network list
+network_list <- lapply(noncumMat_list, as.network.matrix, add.rownames = T)
 
 
-```{r trash}
 
-#getting info on the isolates
+#Dynamic Network
+#we shall create dynamic network of one model loop
 
-for(r in 1:length(igraph_list)){
+start.time <- Sys.time()
+
+#Create Dynamic Network#
+
+#create dynamic network from network list
+dynamicNet <- networkDynamic(network.list = network_list, 
+                                 vertex.pid = "vertex.names",
+                                 create.TEAs = F)
+
+#Vertex Attributes#
+#add alliance value and corresponding alliance value color as vertex attributes
+
+#create vector of unique alliance values in order 
+allianceVals <- sort(unique(agents$alliance))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on alliance values
+for (i in 1:nrow(agents)) {
   
-print(V(igraph_list[[r]])[igraph::degree(igraph_list[[r]])==0])
-
-
+  a <- agents$alliance[i]
+  
+  vertColors[i] <- cols[as.character(a)]
 }
 
 
+cbind(network.vertex.names(dynamicNet), rownames(agents)) #ensure they are the same
+
+#set the attributes
+network::set.vertex.attribute(dynamicNet, attrname = "alliance", value = agents$alliance, v = seq_along(network.vertex.names(dynamicNet))) 
+network::set.vertex.attribute(dynamicNet, attrname = "color", value = vertColors, v = seq_along(network.vertex.names(dynamicNet))) 
+
+
+#Render Movie#
+render.d3movie(dynamicNet, filename = "dynNet.html", vertex.col = dynamicNet %v% "color")
+
+end.time <- Sys.time()
+
+print(end.time - start.time)
+
+
+
+```
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+```{r trash}
 
 for (r in 1:length(igraph_list)) {
     
@@ -596,24 +699,7 @@ V(igraph_list[[350]])$alliance <- agents$alliance[match(V(igraph_list[[350]])$na
 V(igraph_list[[350]])$color <- V(igraph_list[[350]])$
 
   
-a = V(igraph_list[[350]])$alliance
 
-cols=setNames(colorRampPalette(c("blue", "red"))(length(unique(a))), sort(unique(a))) 
-
-vertex.color=cols[as.character(a)]
-
-
-  
-plot(igraph_list[[350]],
-     layout = layout.fruchterman.reingold,
-     #vertex.label = NA,
-     #  rescale = F,
-     layout = layout_with_kk,
-     vertex.size = 8,
-     vertex.color = vertex.color,
-     vertex.label.color = "grey25",
-     vertex.shape = "circle",
-     edge.arrow.size = 0.3)
 
 for (r in 1:length(igraph_list)) {
   
