@@ -102,7 +102,7 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <-350
+reassessments <- 100
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -122,7 +122,11 @@ maxEuc <- 174
 agentGenerate <- function(n){
   
   #randomly generate 3 traits and their corresponding preferences for each agent
-  alliance <- sample(c(1:100), n, replace = T)
+  #alliance <- sample(c(1:100), n, replace = T)
+  
+  alliance <- abs(rnorm(popSize, mean = 50, sd = 10))
+  
+  alliance <- round(alliance, digits = 0)
   
   alliance <- (alliance/100)
   
@@ -416,14 +420,14 @@ for(r in 1:length(igraph_list)) {
 }
 
 #Optional igraph plot (just change index)
-plot(igraph_list[[350]],
+plot(igraph_list[[100]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
      #vertex.color = vertex.color,
-     vertex.label.color = "lightgrey",
+     vertex.label.color = "black",
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
 
@@ -504,6 +508,16 @@ ggplot(data = clique_results,
        color = "clique size") +
   geom_smooth()
 
+
+#number of isolates
+
+isolate_list <- c(rep(NA, 350))
+for(r in 1:length(igraph_list)){
+  
+    isolates <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 1, max = 1))))
+    isolate_list[r] <- isolates
+  
+}
 
 
 ### Dynamic Network
