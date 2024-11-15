@@ -96,13 +96,13 @@ library(ndtv)
 #number of agents to generate
 popSize <- 100
 
-pursuitRange <- c(1:5)
+#pursuitRange <- c(1:5)
 
 #number of pursuits each agent will have for each reassessment period
-pursuitAmount <- 4
+pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 30
+reassessments <- 300
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -122,136 +122,118 @@ maxEuc <- 174
 agentGenerate <- function(n){
   
   #randomly generate 3 traits and their corresponding preferences for each agent
-  trait1 <- sample(c(1:100), n, replace = T)
+  #alliance <- sample(c(1:100), n, replace = T)
   
-  trait2 <- sample(c(1:100), n, replace = T)
+  alliance <- abs(rnorm(popSize, mean = 50, sd = 10))
   
-  trait3 <- sample(c(1:100), n, replace = T)
+  alliance <- round(alliance, digits = 0)
   
-  pref1 <- sample(c(1:100), n, replace = T)
-  
-  pref2 <- sample(c(1:100), n, replace = T)
-  
-  pref3 <- sample(c(1:100), n, replace = T)
+  alliance <- (alliance/100)
   
   #put it all together in a df
-  agents <- data.frame(trait1, trait2, trait3, pref1, pref2, pref3)
+  agents <- data.frame(alliance)
   
   return(agents)
   
 }
 
 
-
-#Euclidean Distance Function#
-#calculates distances between agent a's traits and agent b's preferences
-
-euc.dist <- function(x1, x2) sqrt(sum((x1 - x2) ^ 2))
-
-
-
-#Alliance Score Function#
-#input an agent, output vector of alliance values of all other agents for input agent
-
-alliance <- function(agent, agents){
-
-    #pull all agents' trait columns 
-    trait_cols <- agents[, c("trait1","trait2","trait3")]
-    
-    #pull the input agent's preference columns
-    pref_cols <- agents[agent, c("pref1","pref2","pref3")]
-    
-    #calculate the euclidean distance between each row of trait cols with agent's pref cols
-   alliance_values <- apply(trait_cols, 1, function(trait_row) {
-     euc.dist(pref_cols, trait_row)
+weighted_jaccard <- function(x, y) {
   
-     
-   })
-    
-   #normalize by dividing by max euc, and subtract from 1 to reverse the scale (let's make bigger be better)
-   alliance_values <- 1 - (alliance_values/maxEuc)
-   
-   #return the vector of alliance values for the inputted agent
-   return(alliance_values)
-   
-  }
+  # Calculate the numerator: Sum of minimum intensities
+  numerator <- sum(pmin(x, y))
   
-
+  # Calculate the denominator: Sum of maximum intensities
+  denominator <- sum(pmax(x, y))
+  
+  # Handle edge case where denominator is 0 (all zeros)
+  if (denominator == 0) return(0)
+  
+  # Calculate weighted Jaccard similarity
+  similarity <- numerator / denominator
+  return(similarity)
+}
 
 
 #Overlap Score Function#
 #calculates overlap between input agent and all other agents by comparing their sent and received pursuits; based on Dave's triadic primitives
 
 overlap <- function(agent, adjMat) {
-     
   
-       #Alliance#
-       #calculate correlation of agent's row with other agents' rows
+  #Alliance#
+  #calculate correlation of agent's row with other agents' rows
+  alliance <- sapply(1:nrow(adjMat), function(i) {
+  if (i == agent) return(NA) 
   
-      alliance <- apply(adjMat, 1, function(x)
-        cor(x, adjMat[agent, ], use = "complete.obs"))
-      
-      #change NAs to 0
-      alliance [is.na(alliance)] <- 0
-      
-      #add 1 to make them positive (unless it is 0, being in the first reassessment)
-      alliance <- ifelse(alliance != 0, alliance + 1, 0)    
-      
-     
-      
-      #Displacement#
-      #calculate correlation of agent's row with other agents' columns
-      
-      displacement <- apply(adjMat, 2, function(x)
-        cor(x, adjMat[agent, ], use = "complete.obs"))
-      
-      #change NAs to 0
-      displacement [is.na(displacement)] <- 0
-      
-      #add 1 to make them positive
-      displacement <- ifelse(displacement != 0, displacement + 1, 0)
-      
-      
-      
-      
-      #Defense#
-      #calculate correlation of agent's column with other agents' rows
-      
-      defense <- apply(adjMat, 1, function(x)
-        cor(x, adjMat[, agent], use = "complete.obs"))
-      
-      #change NAs to 0
-      defense [is.na(defense)] <- 0
-      
-      #add 1 to make them positive
-      defense <- ifelse(defense != 0, defense + 1, 0)
-      
-      
-      
-      
-      #Generalization#
-      #calculate correlation of agent's column with other agents' columns
-      
-      generalization <- apply(adjMat, 2, function(x)
-        cor(x, adjMat[, agent], use = "complete.obs"))
-      
-      #change NAs to 0
-      generalization [is.na(generalization)] <- 0
-      
-      #add 1 to make them positive
-      generalization <- ifelse(generalization != 0, generalization + 1, 0)
-      
-      
-      
-      #add together the 4 primitives to get the overlap scores
-      overlap_scores <- alliance + displacement + generalization + defense
-      
-      overlap_scores[agent] <- NA
-      
-      return(overlap_scores)
-      
-    }
-    
+  #exclude both agents' indices from both vectors
+  exclude_indices <- c(agent, i)
+  
+  x_filtered <- adjMat[i, -exclude_indices]
+  agent_row_filtered <- adjMat[agent, -exclude_indices]
+  
+  weighted_jaccard(x_filtered, agent_row_filtered)
+})
+
+  
+  #Displacement#
+  #calculate correlation of agent's row with other agents' columns
+  
+  displacement <- sapply(1:ncol(adjMat), function(j) {
+  if (j == agent) return(NA) 
+  
+  exclude_indices <- c(agent, j)
+  
+  x_filtered <- adjMat[-exclude_indices, j]
+  agent_filtered <- adjMat[agent, -exclude_indices]
+  
+  weighted_jaccard(x_filtered, agent_filtered)
+})
+
+  
+  
+  #Defense#
+  #calculate correlation of agent's column with other agents' rows
+  
+  defense <- sapply(1:nrow(adjMat), function(i) {
+  if (i == agent) return(NA) 
+  
+  exclude_indices <- c(agent, i)
+  
+  x_filtered <- adjMat[i, -exclude_indices]
+  agent_filtered <- adjMat[-exclude_indices, agent]
+  
+  weighted_jaccard(x_filtered, agent_filtered)
+})
+
+
+  
+  
+  #Generalization#
+  #calculate correlation of agent's column with other agents' columns
+  generalization <- sapply(1:ncol(adjMat), function(j) {
+  if (j == agent) return(NA) 
+  
+  exclude_indices <- c(agent, j)
+  
+  x_filtered <- adjMat[-exclude_indices, j]
+  agent_filtered <- adjMat[-exclude_indices, agent]
+  
+  weighted_jaccard(x_filtered, agent_filtered)
+})
+
+
+  
+  #add together the 4 to get the overlap scores
+  overlap_scores <- alliance + displacement + generalization + defense
+  
+  overlap_scores <- overlap_scores / 4
+  
+  overlap_scores[agent] <- NA
+  
+  return(overlap_scores)
+  
+}
+
   
 #Reciprocity Function#
 
@@ -263,17 +245,27 @@ reciprocity <- function(agent, adjMat){
   #pull agent's row which represents their sent pursuits
   sent <- adjMat[agent,]
     
-  #calculate proportions of pursuits which were received, multiply by 2 to match overlap components' range
-  reciprocity_scores <- 2*(received / (received + sent))
+  #calculate proportions of pursuits which were received
+  reciprocity_scores <- (received / (received + sent))
   
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
   
   return(reciprocity_scores)
   
-  
 }
   
+
+#compare edges between two graphs
+
+edge_compare <- function(graph1,graph2){
+  
+  sameEdges <- length(intersect(E(graph1),E(graph2)))
+  
+  return(sameEdges)
+  
+}
+
 
 
 ```
@@ -286,14 +278,14 @@ reciprocity <- function(agent, adjMat){
 start.time <- Sys.time()
 
 #initialize results df
-results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
-                      "reassess" = rep(1:reassessments),
-                      "num_recip_edges" = NA)
+# results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
+#                       "reassess" = rep(1:reassessments),
+#                       "num_recip_edges" = NA)
 
 
 
-
-for(m in 1:modelLoops) {
+#commenting out model loops for now
+#for(m in 1:modelLoops) {
   
   #generate agents
   agents <- agentGenerate(popSize)
@@ -323,10 +315,10 @@ for(m in 1:modelLoops) {
       reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
       
       #calculate the alliance values between their prefs and the other agents' traits
-      alliance_values <- alliance(a, agents)
+      alliance_values <- agents$alliance
       
       #Combine overlap, reciprocity, and alliance scores into single calculation
-      pursuit_scores <- (overlap_scores + reciprocity_scores) * (alliance_values)
+      pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
       
       #Randomize number of pursuits for the agent
       #pursuitAmount <- sample(pursuitRange, 1, replace = T)
@@ -353,50 +345,26 @@ for(m in 1:modelLoops) {
   
   
   #convert the noncum adjacency matrices into igraph networks
-  igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
-  
-  #loop through each igraph object
-  for (g in 1:length(igraph_list)) {
-    
-    #only include edges that are reciprocated
-    igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                              E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                              delete.vertices = F) #maybe i can just do this with true to get groups
-    
-    #add number of reciprocal edges to results df
-    results$num_recip_edges[results$loop == m & results$reassess == g] <- (length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-
-  }
-  
-  #count number of groups
-  
-  # no_isolates_igraph <- igraph_list
+  # igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
   # 
-  # for (g in 1:length(no_isolates_igraph)) {
+  # #loop through each igraph object
+  # for (g in 1:length(igraph_list)) {
   #   
-  #   if (g > 1) {
-  #     
-  #     #first must delete the isolates or they will be counted as individual groups
-  #     g.degree <- igraph::degree(no_isolates_igraph[[g]])
-  #     g.isolates <- V(no_isolates_igraph[[g]])[which(g.degree < 1)]
-  #     no_isolates_igraph[[g]] <- delete_vertices(no_isolates_igraph[[g]], g.isolates)
-  #     
-  #     #add to results df
-  #     results$num_groups[results$loop == m & results$reassess == g] <- components(no_isolates_igraph[[g]])$no
-  #     
-  #   } else {
-  #     
-  #     #the first plot should have no edges at all
-  #     results$num_groups[results$loop == m & results$reassess == g] <- 0
-  #     
-  #   }
+  #   #only include edges that are reciprocated
+  #   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+  #                                             E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+  #                                             delete.vertices = F) #maybe i can just do this with true to get groups
   #   
-  # }
-  
-}
+  #   #add number of reciprocal edges to results df
+  #   print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  # 
+  #   
+    
+ # }
+#}
 
 #the first reassess from each loop displays recip edge number as popSize because of intial matrix set up, so fix to 0
-results$num_recip_edges[results$reassess == 1] <- 0
+#results$num_recip_edges[results$reassess == 1] <- 0
 
 end.time <- Sys.time()
 
@@ -409,67 +377,243 @@ print(end.time - start.time)
 ```{r analysis}
 
 
+### Igraph Network
 
-#Edge Count Plot#
-#see how number of reciprocal edges changes over time across all model loops
-ggplot(data = results,
-       aes(x = reassess,
-           y = num_recip_edges,
-           color = as.factor(loop))) +
-  labs(x = "regroup period",
-       y = "number of reciprocated edges",
-       color = "model loop") +
+## convert to igraph
+#convert the noncum adjacency matrices into igraph networks to see groups over time
+#deleting non recip edges instead of denoting them makes dynamic net run much faster
+
+igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
+  
+#loop through each igraph object
+for (g in 1:length(igraph_list)) {
+  
+  #only include edges that are reciprocated
+  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+                                     E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+                                     delete.vertices = F) #maybe i can just do this with true to get groups
+  
+  #just curious
+  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  
+  
+}
+
+#add vertex attributes
+for(r in 1:length(igraph_list)) {
+  
+  V(igraph_list[[r]])$name <- c(1:100)
+  
+  V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+}
+
+#Optional igraph plot (just change index)
+plot(igraph_list[[99]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
+## Clique data
+#cliques differ from groups in that the subgraphs must be interconnected to be counted as clique
+
+clique_results <- data.frame("reassessment" = rep(1:reassessments, each = 4),
+                             "percentInClique" = NA, #percent of agents in cliques of 3+
+                             "cliqueSize" = rep(1:4), #clique sizes 1-4
+                             "percentOfSize" = NA)
+
+#for each reassessment period...
+for (r in 1:length(igraph_list)) {
+  
+  #...get percent of agents in a clique of at least 3
+  percentInClique <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3))))/popSize
+  
+  #get total number of cliques of 1,2,3,4 to serve as denominator
+  #total_cliques[r] <- count_max_cliques(igraph_list[[r]], min = 1)
+  
+  #get number of cliques of each size
+  cliques_two <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 2, max = 2))))/popSize
+  cliques_three <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3, max = 3))))/popSize
+  cliques_four <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 4, max = 4))))/popSize
+  isolates <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 1, max = 1))))/popSize
+  
+  #get number of constant edges between each reassessment
+  constant_edges <- edge_compare(igraph_list[[r]], igraph_list[[r+1]])
+
+  
+  #add to results df
+  clique_results$percentInClique[clique_results$reassess == r] <- percentInClique
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 1] <- isolates
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 2] <- cliques_two
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 3] <- cliques_three
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 4] <- cliques_four
+  clique_results$constant_edges[clique_results$reassessment == r+1] <- constant_edges
+  
+}
+
+clique_results$percentInClique[clique_results$reassessment == 1] <- 0
+clique_results$percentOfSize[clique_results$reassessment == 1 & clique_results$cliqueSize == 1] <- popSize/100
+
+
+
+#plot to see percent of agents that are part of a clique (3+ agents) across regrouping periods
+ggplot(data = clique_results,
+       aes(x = reassessment,
+           y = percentInClique)) +
+  labs(title = "Percent of agents in cliques per reassessment",
+       subtitle = "reciprocity(0-1) * overlap(0-1) * alliance(0-1)",
+       x = "reassessment period",
+       y = "percent of agents in a clique (3+)") +
   geom_line()
 
 
+#plot to see which edges remain constant over reassessment periods
+ggplot(data = clique_results,
+       aes(x = reassessment,
+           y = constant_edges)) +
+  labs(title = "Edge Constancy ",
+       x = "regrouping period",
+       y = "number of retained edges from previous regrouping") +
+  geom_smooth()
 
 
-### Plotting Networks
-#we shall a dynamic network of just one loop (the last one)
+#plot to see clique size distribution across regrouping periods
+#still trying to reword but basically, I am plotting the percent of agents whose max clique size is each of the clique sizes
+ggplot(data = clique_results,
+       aes(x = reassessment,
+           y = percentOfSize,
+           color = as.factor(cliqueSize))) +
+  labs(title = "Maximal Clique",
+       subtitle = "percent of agents whose maximal clique is of size 'clique size'",
+       x = "reassessment period",
+       y = "percent of agents in maximal clique",
+       color = "clique size") +
+  geom_smooth()
 
-#convert the igraph to network objects
+
+#number of isolates
+
+isolate_list <- c(rep(NA, 350))
+for(r in 1:length(igraph_list)){
+  
+    isolates <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 1, max = 1))))
+    isolate_list[r] <- isolates
+  
+}
+
+
+### Dynamic Network
+#we shall create dynamic network of one model loop
+
+start.time <- Sys.time()
+
+#Create Dynamic Network#
+#convert the igraph to network objects so we can make dynamic net
 networkList <- lapply(igraph_list, asNetwork)
-
 
 #create dynamic network from network list
 dynamicNet <- networkDynamic(network.list = networkList, 
                                  vertex.pid = "vertex.names",
                                  create.TEAs = T,)
 
-#render the movie (oscar nominee?)
-render.d3movie(dynamicNet)
+#Vertex Attributes#
+#add alliance value and corresponding alliance value color as vertex attributes
+
+#create vector of unique alliance values in order 
+allianceVals <- sort(unique(agents$alliance))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on alliance values
+for (i in 1:nrow(agents)) {
+  
+  a <- agents$alliance[i]
+  
+  vertColors[i] <- cols[as.character(a)]
+}
+
+
+cbind(network.vertex.names(dynamicNet), rownames(agents)) #ensure they are the same
+
+#set the attributes
+network::set.vertex.attribute(dynamicNet, attrname = "alliance", value = agents$alliance, v = seq_along(network.vertex.names(dynamicNet))) 
+network::set.vertex.attribute(dynamicNet, attrname = "color", value = vertColors, v = seq_along(network.vertex.names(dynamicNet))) 
+
+
+#Render Movie#
+render.d3movie(dynamicNet, filename = "dynNet.html", vertex.col = dynamicNet %v% "color")
+
+end.time <- Sys.time()
+
+print(end.time - start.time)
+
+
+```
+
+```{r network}
+
+#Create network list
+network_list <- lapply(noncumMat_list, as.network.matrix, add.rownames = T)
 
 
 
+#Dynamic Network
+#we shall create dynamic network of one model loop
+
+start.time <- Sys.time()
+
+#Create Dynamic Network#
+
+#create dynamic network from network list
+dynamicNet <- networkDynamic(network.list = network_list, 
+                                 vertex.pid = "vertex.names",
+                                 create.TEAs = F)
+
+#Vertex Attributes#
+#add alliance value and corresponding alliance value color as vertex attributes
+
+#create vector of unique alliance values in order 
+allianceVals <- sort(unique(agents$alliance))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on alliance values
+for (i in 1:nrow(agents)) {
+  
+  a <- agents$alliance[i]
+  
+  vertColors[i] <- cols[as.character(a)]
+}
 
 
-# plot(igraph_list[[20]],
-#      layout = layout.fruchterman.reingold,
-#      #vertex.label = NA,
-#      #  rescale = F,
-#      layout = layout_with_kk,
-#      vertex.size = 8,
-#      vertex.label.color = "grey25",
-#      vertex.shape = "circle",
-#      edge.arrow.size = 0.3)
+cbind(network.vertex.names(dynamicNet), rownames(agents)) #ensure they are the same
+
+#set the attributes
+network::set.vertex.attribute(dynamicNet, attrname = "alliance", value = agents$alliance, v = seq_along(network.vertex.names(dynamicNet))) 
+network::set.vertex.attribute(dynamicNet, attrname = "color", value = vertColors, v = seq_along(network.vertex.names(dynamicNet))) 
 
 
-# 
-# ### no isolates so we can get the number of groups for each graph
-# 
-# 
-# no_isolates <- igraph_list
-# 
-# for(g in 1:length(no_isolates)){
-#   
-#   g.degree <- igraph::degree(no_isolates[[g]])
-#   g.isolates <- V(no_isolates[[g]])[which(g.degree < 1)]
-#   no_isolates[[g]] <- delete_vertices(no_isolates[[g]], g.isolates)
-#   
-# }
+#Render Movie#
+render.d3movie(dynamicNet, filename = "dynNet.html", vertex.col = dynamicNet %v% "color")
 
+end.time <- Sys.time()
 
-
+print(end.time - start.time)
 
 
 
@@ -477,6 +621,138 @@ render.d3movie(dynamicNet)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+```{r trash}
+
+for (r in 1:length(igraph_list)) {
+    
+
+    prop1 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 1])/igraph::components(igraph_list[[r]])$no
+    
+    prop2 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 2])/igraph::components(igraph_list[[r]])$no
+    
+    prop3 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 3])/igraph::components(igraph_list[[r]])$no
+    
+    prop4 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 4])/igraph::components(igraph_list[[r]])$no
+    
+    prop5 <- length(igraph::components(igraph_list[[r]])$csize[igraph::components(igraph_list[[r]])$csize == 5])/igraph::components(igraph_list[[r]])$no
+    
+    
+    #get number of closed triangles
+    max_cliques(igraph_list[[r]], min = 3)
+  
+    #add number of reciprocal edges to results df
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 1] <- prop1
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 2] <- prop2
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 3] <- prop3
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 4] <- prop4
+    igraph_results$proportion[igraph_results$reassess == r & igraph_results$groupSize == 5] <- prop5
+
+}
+
+ #Defense#
+      #calculate correlation of agent's column with other agents' rows
+      
+      defense <- apply(adjMat, 1, function(x){
+        
+        
+        
+        weighted_jaccard(x, adjMat[, agent])
+      })
+      
+      
+## Plot group size
+# plot the prevalence of different sized groups over time (reassessment periods)
+
+igraph_results <- data.frame(
+                      "reassess" = rep(1:reassessments, each = 5),
+                      "groupSize" = rep(1:5),
+                      "proportion" = NA)
+
+
+   
+#plot it
+ggplot(data = igraph_results,
+       aes(x = reassess,
+           y = proportion,
+           color = as.factor(groupSize))) +
+  labs(title = "Prevalence of different sized groups over reassesments",
+       subtitle = "(reciprocity(0-1) * overlap(0-1)) * alliance(0-1)",
+       x = "reassessment period",
+       y = "percent of groups of size x",
+       color = "group size") +
+  geom_line()
+
+
+## single plot syntax
+# you can plot any for fun
+
+V(igraph_list[[350]])$alliance <- agents$alliance[match(V(igraph_list[[350]])$name, rownames(agents))]
+
+V(igraph_list[[350]])$color <- V(igraph_list[[350]])$
+
+  
+
+
+for (r in 1:length(igraph_list)) {
+  
+  #...get percent of agents in a clique of at least 3
+  percentInClique <- length(unique(unlist(max_cliques(igraph_list[[r]], min = 3))))/popSize
+  
+  #get total number of cliques of 1,2,3,4 to serve as denominator
+  total_cliques[r] <- count_max_cliques(igraph_list[[r]], min = 1)
+  
+  #get number of cliques of each size
+  cliques_two <- count_max_cliques(igraph_list[[r]], min = 2, max = 2)/total_cliques[r]
+  cliques_three <- count_max_cliques(igraph_list[[r]], min = 3, max = 3)/total_cliques[r]
+  cliques_four <- count_max_cliques(igraph_list[[r]], min = 4, max = 4)/total_cliques[r]
+  isolates <- count_max_cliques(igraph_list[[r]], min = 1, max = 1)/total_cliques[r]
+
+  #add to results df
+  clique_results$percentInClique[clique_results$reassess == r] <- percentInClique
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 1] <- isolates
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 2] <- cliques_two
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 3] <- cliques_three
+  clique_results$percentOfSize[clique_results$reassess == r & clique_results$cliqueSize == 4] <- cliques_four
+  
+}
+
+
+
+
+# Toy adjacency matrix
+adjMatTest <- matrix(c(0, 1, 2, 3,
+                   1, 0, 4, 5,
+                   2, 4, 0, 6,
+                   3, 5, 6, 0), 
+                 nrow = 4, byrow = TRUE)
+
+# Agent to test
+agent <- 2
+
+# Run your function
+result <- overlap(agent, adjMatTest)
+
+print(result)
+
+
+
+
+
+
+
+
+```
 
 
 
