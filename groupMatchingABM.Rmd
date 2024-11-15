@@ -102,7 +102,7 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 300
+reassessments <- 500
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -130,8 +130,10 @@ agentGenerate <- function(n){
   
   alliance <- (alliance/100)
   
+  pursuit_amount <- sample(c(2:5), n, replace = T)
+  
   #put it all together in a df
-  agents <- data.frame(alliance)
+  agents <- data.frame(alliance, pursuit_amount)
   
   return(agents)
   
@@ -167,10 +169,10 @@ overlap <- function(agent, adjMat) {
   
   #exclude both agents' indices from both vectors
   exclude_indices <- c(agent, i)
-  
   x_filtered <- adjMat[i, -exclude_indices]
   agent_row_filtered <- adjMat[agent, -exclude_indices]
   
+  #calculate weighted jaccard
   weighted_jaccard(x_filtered, agent_row_filtered)
 })
 
@@ -181,11 +183,12 @@ overlap <- function(agent, adjMat) {
   displacement <- sapply(1:ncol(adjMat), function(j) {
   if (j == agent) return(NA) 
   
+  #exclude both agents' indices from both vectors
   exclude_indices <- c(agent, j)
-  
   x_filtered <- adjMat[-exclude_indices, j]
   agent_filtered <- adjMat[agent, -exclude_indices]
   
+  #calculate weighted jaccard
   weighted_jaccard(x_filtered, agent_filtered)
 })
 
@@ -197,11 +200,12 @@ overlap <- function(agent, adjMat) {
   defense <- sapply(1:nrow(adjMat), function(i) {
   if (i == agent) return(NA) 
   
+  #exclude both agents' indices from both vectors
   exclude_indices <- c(agent, i)
-  
   x_filtered <- adjMat[i, -exclude_indices]
   agent_filtered <- adjMat[-exclude_indices, agent]
   
+  #calculate weighted jaccard
   weighted_jaccard(x_filtered, agent_filtered)
 })
 
@@ -213,11 +217,12 @@ overlap <- function(agent, adjMat) {
   generalization <- sapply(1:ncol(adjMat), function(j) {
   if (j == agent) return(NA) 
   
+  #exclude both agents' indices from both vectors
   exclude_indices <- c(agent, j)
-  
   x_filtered <- adjMat[-exclude_indices, j]
   agent_filtered <- adjMat[-exclude_indices, agent]
   
+  #calculate weighted jaccard
   weighted_jaccard(x_filtered, agent_filtered)
 })
 
@@ -318,10 +323,10 @@ start.time <- Sys.time()
       alliance_values <- agents$alliance
       
       #Combine overlap, reciprocity, and alliance scores into single calculation
-      pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
+      pursuit_scores <- overlap_scores * alliance_values * reciprocity_scores
       
       #Randomize number of pursuits for the agent
-      #pursuitAmount <- sample(pursuitRange, 1, replace = T)
+      pursuitAmount <- agents$pursuit_amount[a]
       
       #sort by product in descending order and get the indices of the top value agents
       pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -399,6 +404,7 @@ for (g in 1:length(igraph_list)) {
   
 }
 
+
 #add vertex attributes
 for(r in 1:length(igraph_list)) {
   
@@ -406,10 +412,48 @@ for(r in 1:length(igraph_list)) {
   
   V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
   
+  V(igraph_list[[r]])$pursuit_amount <- agents$pursuit_amount[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+}
+
+for(EXAMNUM in 1:length(igraph_list)) {
+  for (i in 1:vcount(igraph_list[[EXAMNUM]])) {
+    if (!is.na(V(igraph_list[[EXAMNUM]])$pursuit_amount[i])) {
+      if (V(igraph_list[[EXAMNUM]])$pursuit_amount[i] == 5) {
+        V(igraph_list[[EXAMNUM]])$color[i] <- "darkgreen"
+      } else if (V(igraph_list[[EXAMNUM]])$pursuit_amount[i] == 4) {
+        V(igraph_list[[EXAMNUM]])$color[i] <- "lightgreen"
+      } else if (V(igraph_list[[EXAMNUM]])$pursuit_amount[i] == 3) {
+        V(igraph_list[[EXAMNUM]])$color[i] <- "yellow"
+      } else if (V(igraph_list[[EXAMNUM]])$pursuit_amount[i] == 2) {
+        V(igraph_list[[EXAMNUM]])$color[i] <- "orange"
+      } else if (V(igraph_list[[EXAMNUM]])$pursuit_amount[i] == 1) {
+        V(igraph_list[[EXAMNUM]])$color[i] <- "red"
+      }
+    }
+  }
+}
+
+for(i in 1:vcount(plot3000_exam1)){
+  if(!is.na(V(plot3000_exam1)$grade[i])){
+    if(V(plot3000_exam1)$grade[i] >= 89.5){
+      V(plot3000_exam1)$color[i] <- "darkgreen"
+    } else if (V(plot3000_exam1)$grade[i] >= 79.5 && V(plot3000_exam1)$grade[i] <= 89.49){
+      V(plot3000_exam1)$color[i] <- "lightgreen"
+    } else if (V(plot3000_exam1)$grade[i] >= 69.5 && V(plot3000_exam1)$grade[i] <= 79.49){
+      V(plot3000_exam1)$color[i] <- "yellow" 
+    } else if (V(plot3000_exam1)$grade[i] >= 59.5 && V(plot3000_exam1)$grade[i] <= 69.49){
+      V(plot3000_exam1)$color[i] <- "orange" 
+    } else if (V(plot3000_exam1)$grade[i] <= 59.49){
+      V(plot3000_exam1)$color[i] <- "red"  
+    }
+  } else {
+    V(plot3000_exam1)$color[i] <- "grey"
+  }
 }
 
 #Optional igraph plot (just change index)
-plot(igraph_list[[99]],
+plot(igraph_list[[499]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -521,7 +565,7 @@ networkList <- lapply(igraph_list, asNetwork)
 #create dynamic network from network list
 dynamicNet <- networkDynamic(network.list = networkList, 
                                  vertex.pid = "vertex.names",
-                                 create.TEAs = T,)
+                                 )
 
 #Vertex Attributes#
 #add alliance value and corresponding alliance value color as vertex attributes
@@ -727,20 +771,33 @@ for (r in 1:length(igraph_list)) {
   
 }
 
+agent <- 2
 
-
-
-# Toy adjacency matrix
+#fake adjacency matrix
 adjMatTest <- matrix(c(0, 1, 2, 3,
                    1, 0, 4, 5,
                    2, 4, 0, 6,
                    3, 5, 6, 0), 
                  nrow = 4, byrow = TRUE)
 
-# Agent to test
-agent <- 2
 
-# Run your function
+ alliance <- sapply(1:nrow(adjMatTest), function(i) {
+  if (i == agent) return(NA) 
+  
+  #exclude both agents' indices from both vectors
+  exclude_indices <- c(agent, i)
+  x_filtered <- adjMat[i, -exclude_indices]
+  agent_row_filtered <- adjMat[agent, -exclude_indices]
+  
+  #calculate weighted jaccard
+  weighted_jaccard(x_filtered, agent_row_filtered)
+  print(list(x_filtered, agent_row_filtered))
+})
+
+
+
+
+
 result <- overlap(agent, adjMatTest)
 
 print(result)
