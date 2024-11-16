@@ -157,84 +157,80 @@ weighted_jaccard <- function(x, y) {
 
 #Overlap Score Function#
 #calculates overlap between input agent and all other agents by comparing their sent and received pursuits; based on Dave's triadic primitives
+#choose components to use in calculation
 
-overlap <- function(agent, adjMat) {
-  
-  #Alliance#
-  #calculate correlation of agent's row with other agents' rows
-  alliance <- sapply(1:nrow(adjMat), function(i) {
-  if (i == agent) return(NA) 
-  
-  #exclude both agents' indices from both vectors
-  exclude_indices <- c(agent, i)
-  
-  x_filtered <- adjMat[i, -exclude_indices]
-  agent_row_filtered <- adjMat[agent, -exclude_indices]
-  
-  weighted_jaccard(x_filtered, agent_row_filtered)
-})
+overlap <- function(agent, adjMat, components = c("alliance", "displacement", "generalization", "defense")) {
+    
+    #initialize component list
+    scores <- list(
+      alliance = NA,
+      displacement = NA,
+      defense = NA,
+      generalization = NA
+    )
+    
+    #Alliance#
+    #calculate correlation of agent's row with other agents' rows  if ("alliance" %in% components) {
+    if ("alliance" %in% components) {
+      scores$alliance <- sapply(1:nrow(adjMat), function(i) {
+        if (i == agent)
+          return(NA)
+        exclude_indices <- c(agent, i)
+        x_filtered <- adjMat[i,-exclude_indices]
+        agent_row_filtered <- adjMat[agent,-exclude_indices]
+        weighted_jaccard(x_filtered, agent_row_filtered)
+      })
+    }
+    
+    #Displacement#
+    #calculate correlation of agent's row with other agents' columns
+    if ("displacement" %in% components) {
+      scores$displacement <- sapply(1:ncol(adjMat), function(j) {
+        if (j == agent)
+          return(NA)
+        exclude_indices <- c(agent, j)
+        x_filtered <- adjMat[-exclude_indices, j]
+        agent_filtered <- adjMat[agent,-exclude_indices]
+        weighted_jaccard(x_filtered, agent_filtered)
+      })
+    }
+    
+    #Defense#
+    #calculate correlation of agent's column with other agents' rows
+    if ("defense" %in% components) {
+      scores$defense <- sapply(1:nrow(adjMat), function(i) {
+        if (i == agent)
+          return(NA)
+        exclude_indices <- c(agent, i)
+        x_filtered <- adjMat[i,-exclude_indices]
+        agent_filtered <- adjMat[-exclude_indices, agent]
+        weighted_jaccard(x_filtered, agent_filtered)
+      })
+    }
+    
+    #Generalization#
+    #calculate correlation of agent's column with other agents' columns
+    if ("generalization" %in% components) {
+      scores$generalization <- sapply(1:ncol(adjMat), function(j) {
+        if (j == agent)
+          return(NA)
+        exclude_indices <- c(agent, j)
+        x_filtered <- adjMat[-exclude_indices, j]
+        agent_filtered <- adjMat[-exclude_indices, agent]
+        weighted_jaccard(x_filtered, agent_filtered)
+      })
+    }
+    
+    #take average of only the selected components
+    selected_scores <- do.call(cbind, scores[components])
+    overlap_scores <- rowMeans(selected_scores, na.rm = TRUE)
+    
+    overlap_scores[agent] <- NA
+    
+    return(overlap_scores)
+  }
 
-  
-  #Displacement#
-  #calculate correlation of agent's row with other agents' columns
-  
-  displacement <- sapply(1:ncol(adjMat), function(j) {
-  if (j == agent) return(NA) 
-  
-  exclude_indices <- c(agent, j)
-  
-  x_filtered <- adjMat[-exclude_indices, j]
-  agent_filtered <- adjMat[agent, -exclude_indices]
-  
-  weighted_jaccard(x_filtered, agent_filtered)
-})
 
-  
-  
-  #Defense#
-  #calculate correlation of agent's column with other agents' rows
-  
-  defense <- sapply(1:nrow(adjMat), function(i) {
-  if (i == agent) return(NA) 
-  
-  exclude_indices <- c(agent, i)
-  
-  x_filtered <- adjMat[i, -exclude_indices]
-  agent_filtered <- adjMat[-exclude_indices, agent]
-  
-  weighted_jaccard(x_filtered, agent_filtered)
-})
-
-
-  
-  
-  #Generalization#
-  #calculate correlation of agent's column with other agents' columns
-  generalization <- sapply(1:ncol(adjMat), function(j) {
-  if (j == agent) return(NA) 
-  
-  exclude_indices <- c(agent, j)
-  
-  x_filtered <- adjMat[-exclude_indices, j]
-  agent_filtered <- adjMat[-exclude_indices, agent]
-  
-  weighted_jaccard(x_filtered, agent_filtered)
-})
-
-
-  
-  #add together the 4 to get the overlap scores
-  overlap_scores <- alliance + displacement + generalization + defense
-  
-  overlap_scores <- overlap_scores / 4
-  
-  overlap_scores[agent] <- NA
-  
-  return(overlap_scores)
-  
-}
-
-  
 #Reciprocity Function#
 
 reciprocity <- function(agent, adjMat){
@@ -309,7 +305,7 @@ start.time <- Sys.time()
     for (a in 1:nrow(agents)) {
       
       #calculate the overlap scores between themselves and the other agents
-      overlap_scores <- overlap(a, matrix_list[[t - 1]])
+      overlap_scores <- overlap(a, matrix_list[[t - 1]], c("alliance", "generalization", "displacement"))
       
       #calculate the reciprocity scores between themselves and the other agents
       reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
@@ -409,7 +405,7 @@ for(r in 1:length(igraph_list)) {
 }
 
 #Optional igraph plot (just change index)
-plot(igraph_list[[99]],
+plot(all_igraph_list[[300]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -729,21 +725,34 @@ for (r in 1:length(igraph_list)) {
 
 
 
-
-# Toy adjacency matrix
-adjMatTest <- matrix(c(0, 1, 2, 3,
-                   1, 0, 4, 5,
-                   2, 4, 0, 6,
-                   3, 5, 6, 0), 
+#Testing Space#
+adjMatTest <- matrix(c(1, 5, 2, 3,
+                   1, 1, 4, 5,
+                   2, 4, 6, 3,
+                   3, 5, 6, 6), 
                  nrow = 4, byrow = TRUE)
 
-# Agent to test
+
 agent <- 2
+i <- 3
 
-# Run your function
-result <- overlap(agent, adjMatTest)
+exclude_indices <- c(agent, i)
+x_filtered <- adjMatTest[i, -exclude_indices]
+agent_row_filtered <- adjMatTest[agent, -exclude_indices]
+      
+weighted_jaccard(x_filtered, agent_row_filtered)
 
-print(result)
+
+
+x_filtered <- adjMatTest[-exclude_indices, i]
+agent_row_filtered <- adjMatTest[-exclude_indices, agent]
+      
+weighted_jaccard(x_filtered, agent_row_filtered)
+
+
+
+overlap(2, adjMatTest, c("alliance","generalization"))
+
 
 
 
