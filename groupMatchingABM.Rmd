@@ -102,7 +102,7 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 300
+reassessments <- 700
 
 #number of loops for the whole model
 modelLoops <- 10
@@ -129,6 +129,8 @@ agentGenerate <- function(n){
   alliance <- round(alliance, digits = 0)
   
   alliance <- (alliance/100)
+  
+  pursuit_amount <- sample(2:5, n, replace = T)
   
   #put it all together in a df
   agents <- data.frame(alliance)
@@ -170,10 +172,10 @@ overlap <- function(agent, adjMat, components = c("alliance", "displacement", "g
     )
     
     #Alliance#
-    #calculate correlation of agent's row with other agents' rows  if ("alliance" %in% components) {
+    #calculate correlation of agent's row with other agents' rows 
     if ("alliance" %in% components) {
       scores$alliance <- sapply(1:nrow(adjMat), function(i) {
-        if (i == agent)
+        if (i <= agent)
           return(NA)
         exclude_indices <- c(agent, i)
         x_filtered <- adjMat[i,-exclude_indices]
@@ -186,7 +188,7 @@ overlap <- function(agent, adjMat, components = c("alliance", "displacement", "g
     #calculate correlation of agent's row with other agents' columns
     if ("displacement" %in% components) {
       scores$displacement <- sapply(1:ncol(adjMat), function(j) {
-        if (j == agent)
+        if (j <= agent)
           return(NA)
         exclude_indices <- c(agent, j)
         x_filtered <- adjMat[-exclude_indices, j]
@@ -199,7 +201,7 @@ overlap <- function(agent, adjMat, components = c("alliance", "displacement", "g
     #calculate correlation of agent's column with other agents' rows
     if ("defense" %in% components) {
       scores$defense <- sapply(1:nrow(adjMat), function(i) {
-        if (i == agent)
+        if (i <= agent)
           return(NA)
         exclude_indices <- c(agent, i)
         x_filtered <- adjMat[i,-exclude_indices]
@@ -212,7 +214,7 @@ overlap <- function(agent, adjMat, components = c("alliance", "displacement", "g
     #calculate correlation of agent's column with other agents' columns
     if ("generalization" %in% components) {
       scores$generalization <- sapply(1:ncol(adjMat), function(j) {
-        if (j == agent)
+        if (j <= agent)
           return(NA)
         exclude_indices <- c(agent, j)
         x_filtered <- adjMat[-exclude_indices, j]
@@ -223,12 +225,14 @@ overlap <- function(agent, adjMat, components = c("alliance", "displacement", "g
     
     #take average of only the selected components
     selected_scores <- do.call(cbind, scores[components])
+    
     overlap_scores <- rowMeans(selected_scores, na.rm = TRUE)
     
     overlap_scores[agent] <- NA
     
     return(overlap_scores)
   }
+
 
 
 #Reciprocity Function#
@@ -271,13 +275,11 @@ edge_compare <- function(graph1,graph2){
 
 ```{r lifeCycle}
 
-start.time <- Sys.time()
 
 #initialize results df
 # results <- data.frame("loop" = rep(1:modelLoops,each = reassessments),
 #                       "reassess" = rep(1:reassessments),
 #                       "num_recip_edges" = NA)
-
 
 
 #commenting out model loops for now
@@ -294,18 +296,38 @@ start.time <- Sys.time()
   
   #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
   noncumMat_list <- list(adjMat)
+  
+  start.time <- Sys.time()
 
   #for each reassessment... (agents look backwards so start from 2)
   for (t in 2:reassessments) {
     
+    
     #create the empty noncumulative adjacency matrix
     noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+    
+    #Calculate Overlap Matrix#
+    #initialize overlap matrix
+    overlap_matrix <- matrix(NA, nrow = popSize, ncol = popSize)
+    
+    #for each row in the over lap matrix...
+    for(r in 1:nrow(overlap_matrix)){
+      
+      #calculate the overlap between them and the others and add the vector to their corresponding row
+      overlap_matrix[r,] <- overlap(r, matrix_list[[t-1]], c("generalization","displacement","defense","alliance"))
+      
+    }
+    
+      #copy the triangle
+      overlap_matrix[lower.tri(overlap_matrix)] <- t(overlap_matrix)[lower.tri(overlap_matrix)]
+    
+    
     
     #for each agent...
     for (a in 1:nrow(agents)) {
       
       #calculate the overlap scores between themselves and the other agents
-      overlap_scores <- overlap(a, matrix_list[[t - 1]], c("alliance", "generalization", "displacement"))
+      overlap_scores <- overlap_matrix[a,]
       
       #calculate the reciprocity scores between themselves and the other agents
       reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
@@ -317,7 +339,7 @@ start.time <- Sys.time()
       pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
       
       #Randomize number of pursuits for the agent
-      #pursuitAmount <- sample(pursuitRange, 1, replace = T)
+      #pursuitAmount <- agents$pursuit_amount[a]
       
       #sort by product in descending order and get the indices of the top value agents
       pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -339,28 +361,7 @@ start.time <- Sys.time()
     
   }
   
-  
-  #convert the noncum adjacency matrices into igraph networks
-  # igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix)
-  # 
-  # #loop through each igraph object
-  # for (g in 1:length(igraph_list)) {
-  #   
-  #   #only include edges that are reciprocated
-  #   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-  #                                             E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-  #                                             delete.vertices = F) #maybe i can just do this with true to get groups
-  #   
-  #   #add number of reciprocal edges to results df
-  #   print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-  # 
-  #   
-    
- # }
-#}
 
-#the first reassess from each loop displays recip edge number as popSize because of intial matrix set up, so fix to 0
-#results$num_recip_edges[results$reassess == 1] <- 0
 
 end.time <- Sys.time()
 
@@ -402,10 +403,13 @@ for(r in 1:length(igraph_list)) {
   
   V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
   
+  #V(igraph_list[[r]])$pursuitAmount <- agents$pursuit_amount[match(V(igraph_list[[r]])$name, rownames(agents))]
+
+  
 }
 
 #Optional igraph plot (just change index)
-plot(all_igraph_list[[300]],
+plot(igraph_list[[700]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -415,6 +419,11 @@ plot(all_igraph_list[[300]],
      vertex.label.color = "black",
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
+
+assortativity(igraph_list[[700]], V(igraph_list[[350]])$alliance)
+assortativity(igraph_list[[350]], V(igraph_list[[350]])$pursuitAmount)
+
+cbind(igraph::components(igraph_list[[700]])$membership, igraph::components(igraph_list[[650]])$membership, igraph::components(igraph_list[[670]])$membership)
 
 
 ## Clique data
@@ -724,6 +733,9 @@ for (r in 1:length(igraph_list)) {
 }
 
 
+overlap(2, adjMat, components = c("alliance", "displacement", "generalization", "defense"))
+
+overlap_matrix[i, j] <- mean(unlist(selected_scores), na.rm = TRUE) <- rowMeans(selected_scores, na.rm = TRUE)
 
 #Testing Space#
 adjMatTest <- matrix(c(1, 5, 2, 3,
