@@ -102,16 +102,15 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 500
+reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 10
+modelLoops <- 1
 
-#to normalize euclidean distances, divide by highest possible euclidean distance considering vector length and range
-maxEuc <- 174
-
+#list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
 
+#make list of all possible combinations of the prims
 all_combos <- unlist(
   lapply(1:length(all_primitives), function(k) {
     combn(all_primitives, k, simplify = FALSE)
@@ -119,6 +118,10 @@ all_combos <- unlist(
   recursive = FALSE
 )
 
+#add the null option
+all_combos <- c(all_combos, "XX")
+
+#list the prim combo abbreviations in order to append later
 prim_abbrev <- c("A",
 "P",
 "D",
@@ -133,7 +136,8 @@ prim_abbrev <- c("A",
 "APG",
 "ADG",
 "PDG",
-"APDG")
+"APDG",
+"XX")
 
 primies <- as.data.frame(prim_abbrev)
 
@@ -279,7 +283,8 @@ reciprocity <- function(agent, adjMat){
 start.time <- Sys.time()
 
 #initialize results df
-results <- data.frame("combo" = rep(1:length(all_combos),each = reassessments),
+results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos) * reassessments),
+                      "combo" = rep(1:length(all_combos),each = reassessments),
                       "reassess" = rep(1:reassessments),
                       "num_isolates" = NA,
                       "num_groups" = NA,
@@ -288,147 +293,163 @@ results <- data.frame("combo" = rep(1:length(all_combos),each = reassessments),
 
 lastGraphs <- list()
 
-#Generate agents
-agents <- agentGenerate(popSize)
-
-#parallel process here
-
-#run for all possible primitive combos
-for(c in 1:length(all_combos)) {
+for(m in 1:modelLoops) {
   
-  primitives <- all_combos[[c]]
+  print(m)
   
-  #generate adjacency matrix (populate with 1)
-  adjMat <- matrix(1, nrow = popSize, ncol = popSize)
+  #Generate agents
+  agents <- agentGenerate(popSize)
   
-  #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
-  matrix_list <- list(adjMat)
+  #parallel process here
   
-  #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
-  noncumMat_list <- list(adjMat)
-  
-
-  #for each reassessment... (agents look backwards so start from 2)
-  for (t in 2:reassessments) {
+  #run for all possible primitive combos
+  for (c in 1:length(all_combos)) {
     
-    #create the empty noncumulative adjacency matrix
-    noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+    #get the primitives that correspond to that combo
+    primitives <- all_combos[[c]]
     
-    #Calculate overlap in previous adjacency matrix
-    #make empty matrix list
-    overlap_matrices <- list()
+    #generate adjacency matrix (populate with 1)
+    adjMat <- matrix(1, nrow = popSize, ncol = popSize)
     
-    #for each primitive you will be using...
-    for (prim in primitives) {
+    #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
+    matrix_list <- list(adjMat)
+    
+    #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
+    noncumMat_list <- list(adjMat)
+    
+    
+    #for each reassessment... (agents look backwards so start from 2)
+    for (t in 2:reassessments) {
       
-      #create a matrix for that primitive
-      overlap_matrices[[prim]] <- matrix(NA, nrow = popSize, ncol = popSize)
+      #create the empty noncumulative adjacency matrix
+      noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+    
+      # Calculate overlap in previous adjacency matrix #
       
-      #use overlap function to calculate overlap for that primitive
-      for (r in 1:nrow(overlap_matrices[[prim]])) {
-        overlap_matrices[[prim]][r,] <- overlap(r, matrix_list[[t-1]], prim)
+      #if we are not on the null primitive...
+      if (!primitives[1] == "XX") {
+        
+        #make empty matrix list
+        overlap_matrices <- list()
+        
+        #for each primitive you will be using...
+        for (prim in primitives) {
+          #create a matrix for that primitive
+          overlap_matrices[[prim]] <- matrix(NA, nrow = popSize, ncol = popSize)
+          
+          #use overlap function to calculate overlap for that primitive
+          for (r in 1:nrow(overlap_matrices[[prim]])) {
+            overlap_matrices[[prim]][r,] <- overlap(r, matrix_list[[t - 1]], prim)
+          }
+          
+          #fold the the matrix
+          overlap_matrices[[prim]][lower.tri(overlap_matrices[[prim]])] <- t(overlap_matrices[[prim]])[lower.tri(overlap_matrices[[prim]])]
+        }
+        
+        
+        #calculate the final overlap score matrix
+        final_overlap_matrix <-
+          Reduce("+", lapply(primitives, function(prim)
+            overlap_matrices[[prim]])) / length(primitives)
+        
+        #for the null primitive, make overlap matrix filled with 1 (will have no effect when multiplied in pursuit val calculation)
+      } else {
+        final_overlap_matrix <- matrix(1, nrow = popSize, ncol = popSize)
       }
       
-      #fold the the matrix
-      overlap_matrices[[prim]][lower.tri(overlap_matrices[[prim]])] <- t(overlap_matrices[[prim]])[lower.tri(overlap_matrices[[prim]])]
-    }
-    
-
-
-    # Calculate the final overlap score matrix
-    final_overlap_matrix <- Reduce("+", lapply(primitives, function(prim) overlap_matrices[[prim]])) / length(primitives)
-
-    
- #Loop through each agent to compute their pursuits
-    
-    #for each agent...
-    for (a in 1:nrow(agents)) {
+      #Loop through each agent to compute their pursuits
       
-      #pull the overlap scores between themselves and the other agents from the final overlap matrix
-      overlap_scores <- final_overlap_matrix[a,]
+      #for each agent...
+      for (a in 1:nrow(agents)) {
+        #pull the overlap scores between themselves and the other agents from the final overlap matrix
+        overlap_scores <- final_overlap_matrix[a, ]
+        
+        #calculate the reciprocity scores between themselves and the other agents
+        reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
+        
+        #calculate the alliance values between their prefs and the other agents' traits
+        alliance_values <- agents$alliance
+        
+        #Combine overlap, reciprocity, and alliance scores into single calculation
+        pursuit_scores <-
+          overlap_scores * reciprocity_scores * alliance_values
+        
+        #Randomize number of pursuits for the agent
+        pursuitAmount <- pursuitAmount
+        
+        #sort by product in descending order and get the indices of the top value agents
+        pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
+        
+        #add 1 to their pursuits in the cumulative the adjacency matrix
+        adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
+        
+        #and to the individual one
+        noncumMat[a, pursuit_indices] <- 1
+        
+        
+      }
       
-      #calculate the reciprocity scores between themselves and the other agents
-      reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
+      #add the adjMat to the matrix list
+      matrix_list[[t]] <- adjMat
       
-      #calculate the alliance values between their prefs and the other agents' traits
-      alliance_values <- agents$alliance
-      
-      #Combine overlap, reciprocity, and alliance scores into single calculation
-      pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
-      
-      #Randomize number of pursuits for the agent
-      pursuitAmount <- pursuitAmount
-      
-      #sort by product in descending order and get the indices of the top value agents
-      pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
-      
-      #add 1 to their pursuits in the cumulative the adjacency matrix
-      adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
-      
-      #and to the individual one
-      noncumMat[a, pursuit_indices] <- 1
-      
+      #add the non cumulative matrix to its list
+      noncumMat_list[[t]] <- noncumMat
       
     }
     
-    #add the adjMat to the matrix list
-    matrix_list[[t]] <- adjMat
     
-    #add the non cumulative matrix to its list
-    noncumMat_list[[t]] <- noncumMat
+    igraph_list <-
+      lapply(noncumMat_list,
+             graph_from_adjacency_matrix,
+             add.rownames = T)
     
-  }
-  
-  
-  igraph_list <-lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
-  
-  #loop through each igraph object
-  for (g in 1:length(igraph_list)) {
-    
-    #only include edges that are reciprocated
-    igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                       E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                       delete.vertices = F) #maybe i can just do this with true to get groups
-    
-    #get total number of edges
-    numEdges <- length(E(igraph_list[[g]]))
-    
-    
-    #get edge overlap with previous graph
-    intersectLast <- ifelse(g > 1, length(E(intersection(igraph_list[[g-1]],igraph_list[[g]]))), NA)
-    
-    #get number of groups
-    num_groups <- igraph::components(igraph_list[[g]])$no
-    
-    #get number of isolates
-    num_isolates <- length(max_cliques(igraph_list[[g]], min = 1, max = 1))
+    #loop through each igraph object
+    for (g in 1:length(igraph_list)) {
       
-    #get number of closed groups of 4
-    num_four <- length(max_cliques(igraph_list[[g]], min = 4, max = 4))
+      #only include edges that are reciprocated
+      igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+                                         E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+                                         delete.vertices = F) #maybe i can just do this with true to get groups
+      
+      #get total number of edges
+      numEdges <- length(E(igraph_list[[g]]))
+      
+      
+      #get edge overlap with previous graph
+      intersectLast <- ifelse(g > 1, length(E(intersection(igraph_list[[g - 1]], igraph_list[[g]]))), NA)
+      
+      #get number of groups
+      num_groups <- igraph::components(igraph_list[[g]])$no
+      
+      #get number of isolates
+      num_isolates <- length(max_cliques(igraph_list[[g]], min = 1, max = 1))
+      
+      #get number of closed groups of 4
+      num_four <-length(max_cliques(igraph_list[[g]], min = 4, max = 4))
+      
+      V(igraph_list[[g]])$name <- c(1:100)
+      
+      V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
+      
+      #add number of reciprocal edges to results df
+      results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
+      results$intersectLast[results$reassess == g & results$combo == c & results$loop == m] <- intersectLast
+      results$num_groups[results$reassess == g & results$combo == c & results$loop == m] <- num_groups
+      results$num_isolates[results$reassess == g & results$combo == c & results$loop == m] <- num_isolates
+      results$num_four[results$reassess == g & results$combo == c & results$loop == m] <- num_four
+      results$assort_alliance[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
+      
+      
+    }
     
-    V(igraph_list[[g]])$name <- c(1:100)
-  
-    V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
-  
-    #add number of reciprocal edges to results df
-    results$numEdges[results$reassess == g & results$combo == c] <- numEdges
-    results$intersectLast[results$reassess == g & results$combo == c] <- intersectLast
-    results$num_groups[results$reassess == g & results$combo == c] <- num_groups
-    results$num_isolates[results$reassess == g & results$combo == c] <- num_isolates
-    results$num_four[results$reassess == g & results$combo == c] <- num_four
-    results$assort_alliance[results$reassess == g & results$combo == c] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
-
-
+    
+    #lastGraphs[[c]] <- igraph_list[[reassessments]]
+    
+    print(c)
+    
+    
   }
-  
-  
-  lastGraphs[[c]] <- igraph_list[[reassessments]]
-  
-  print(c)
-
-  
-} 
-  
+}
 
 results$numEdges[results$reassess == 1] <- 0
 results$intersectLast[results$reassess == 2] <- 0
@@ -452,22 +473,90 @@ print(end.time - start.time)
 ```{r analysis}
 
 
-
-write.csv(results, "C:/Users/clara/Downloads/groupFormation/comboRes10x.csv")
-write.csv(agents, "C:/Users/clara/Downloads/groupFormation/agents10.csv")
-
+#calculate percent of edges that are present in previous reassessment period
+results$percentPersist <- (results$intersectLast/results$numEdges)*100
 
 
-ggplot(data = results,
+
+
+#Plots
+
+#Edge Amount Plot#
+#plot the number of reciprocated edges throughout reassessment periods
+
+
+
+
+
+#Edge Persistence Plot#
+#plot the percent of edges that persist for each combo across model loops
+persist_plot <- ggplot(data = results,
        aes(x = reassess,
-           y = numEdges,
-           color = as.factor(prims))) +
-  labs(title = "",
-       subtitle = "",
+           y = percentPersist,
+           color = as.factor(loop),
+           groups = as.factor(loop)
+       )) +
+  facet_wrap(~prims) +
+  labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
+       subtitle = "last 100 reassessments across model loops for each primitive combo",
        x = "reassessment period",
-       y = "percent of edges that are reciprocated",
-       color = "primitives") +
-  geom_smooth(se= F)
+       y = "percent persist",
+       color = "loop") +
+  geom_smooth(se = F) +
+  geom_hline(yintercept = 100, linetype = "dashed")
+
+print(persist_plot)
+
+
+
+#Ranks
+
+#subset results df to only tail entries (after model converges)
+resultsTail <- results[results$reassess > reassessments - 100,]
+
+#calculate mean edge persistence, alliance val assortativity, and number of isolates 
+persistTail <- resultsTail %>%
+  group_by(prims) %>%
+  summarize(
+    meanPersist = mean(percentPersist, na.rm = TRUE),
+    sdPersist = sd(percentPersist, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+assortTail <- resultsTail %>%
+  group_by(prims) %>%
+  summarize(
+    meanAssort = mean(assort_alliance, na.rm = TRUE),
+    sdAssort = sd(assort_alliance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+isolatesTail <- resultsTail %>%
+  group_by(prims, loop) %>%
+  summarize(
+    meanIsolates = sum(num_isolates, na.rm = TRUE),
+#    sdIsolates = sd(num_isolates, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+
+
+
+
+
+
+
+# ggplot(data = results,
+#        aes(x = reassess,
+#            y = numEdges,
+#            color = as.factor(prims))) +
+#   labs(title = "",
+#        subtitle = "",
+#        x = "reassessment period",
+#        y = "percent of edges that are reciprocated",
+#        color = "primitives") +
+#   geom_smooth(se= F)
 
 
 ```
