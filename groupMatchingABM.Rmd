@@ -102,10 +102,10 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 200
+reassessments <- 500
 
 #number of loops for the whole model
-modelLoops <- 1
+modelLoops <- 10
 
 #list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
@@ -291,7 +291,6 @@ results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos) * rea
                       "num_four" = NA,
                       "assort_alliance" = NA)
 
-lastGraphs <- list()
 
 for(m in 1:modelLoops) {
   
@@ -299,8 +298,6 @@ for(m in 1:modelLoops) {
   
   #Generate agents
   agents <- agentGenerate(popSize)
-  
-  #parallel process here
   
   #run for all possible primitive combos
   for (c in 1:length(all_combos)) {
@@ -482,9 +479,24 @@ results$percentPersist <- (results$intersectLast/results$numEdges)*100
 #Plots
 
 #Edge Amount Plot#
-#plot the number of reciprocated edges throughout reassessment periods
+#plot the number of reciprocated edges throughout reassessment periods [average this across loops w SE]
 
+persist_plot <- ggplot(data = resultsTail,
+       aes(x = reassess,
+           y = numEdges,
+           color = as.factor(loop),
+           groups = as.factor(loop)
+       )) +
+  facet_wrap(~prims) +
+  labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
+       subtitle = "last 100 reassessments across model loops for each primitive combo",
+       x = "reassessment period",
+       y = "percent persist",
+       color = "loop") +
+  geom_smooth(se = F) +
+  geom_hline(yintercept = 300, linetype = "dashed")
 
+print(persist_plot)
 
 
 
@@ -515,6 +527,15 @@ print(persist_plot)
 resultsTail <- results[results$reassess > reassessments - 100,]
 
 #calculate mean edge persistence, alliance val assortativity, and number of isolates 
+
+edgesTail <- resultsTail %>%
+  group_by(prims) %>%
+  summarize(
+    meanEdges = mean(numEdges, na.rm = TRUE),
+    sdEdges = sd(numEdges, na.rm = TRUE),
+    .groups = "drop"
+  )
+
 persistTail <- resultsTail %>%
   group_by(prims) %>%
   summarize(
@@ -532,15 +553,12 @@ assortTail <- resultsTail %>%
   )
 
 isolatesTail <- resultsTail %>%
-  group_by(prims, loop) %>%
+  group_by(prims) %>%
   summarize(
     meanIsolates = sum(num_isolates, na.rm = TRUE),
 #    sdIsolates = sd(num_isolates, na.rm = TRUE),
     .groups = "drop"
   )
-
-
-
 
 
 
