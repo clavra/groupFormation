@@ -86,7 +86,9 @@ library(network)
 library(networkDynamic)
 library(intergraph)
 library(ndtv)
-
+library(tidyselect)
+library(tidyverse)
+library(dplyr)
 ```
 
 
@@ -102,7 +104,7 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 200
+reassessments <- 300
 
 #number of loops for the whole model
 modelLoops <- 1
@@ -480,21 +482,6 @@ ggplot(data = results,
 #convert the noncum adjacency matrices into igraph networks to see groups over time
 #deleting non recip edges instead of denoting them makes dynamic net run much faster
 
-#igraph_list <- lapply(noncumMat_list, graph_from_adjacency_matrix, add.rownames = T)
-  
-#loop through each igraph object
-for (g in 1:length(igraph_list)) {
-  
-  #only include edges that are reciprocated
-  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                     E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                     delete.vertices = F) #maybe i can just do this with true to get groups
-  
-  #just curious
-  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-  
-  
-}
 
 
 ##temporary##
@@ -503,6 +490,10 @@ agents$color[agents$role == "earth"] <- "green"
 agents$color[agents$role == "water"] <- "blue"
 agents$color[agents$role == "fire"] <- "red"
 agents$color[agents$role == "air"] <- "yellow"
+
+
+
+#
 
 
 #add vertex attributes
@@ -522,7 +513,7 @@ for(r in 1:length(igraph_list)) {
 }
 
 #Optional igraph plot (just change index)
-plot(igraph_list[[200]],
+plot(igraph_list[[190]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -533,7 +524,7 @@ plot(igraph_list[[200]],
      vertex.shape = "circle",
      edge.arrow.size = 0.3)
 
-assortativity(igraph_list[[250]], V(igraph_list[[250]])$alliance)
+assortativity(igraph_list[[200]], V(igraph_list[[200]])$alliance)
 assortativity(igraph_list[[350]], V(igraph_list[[350]])$pursuitAmount)
 
 cbind(igraph::components(igraph_list[[700]])$membership, igraph::components(igraph_list[[650]])$membership, igraph::components(igraph_list[[670]])$membership)
