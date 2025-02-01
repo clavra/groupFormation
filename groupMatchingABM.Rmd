@@ -94,7 +94,7 @@ library(ndtv)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 100
+popSize <- 200
 
 #pursuitRange <- c(1:5)
 
@@ -137,11 +137,15 @@ prim_abbrev <- c("A",
 "ADG",
 "PDG",
 "APDG",
-"XX")
+"XX") ##should I include NULL strategy?
 
 primies <- as.data.frame(prim_abbrev)
 
-#conditions to test
+primies$prop <- 0.0625
+
+#proportion of strats
+
+
 
 
 
@@ -164,10 +168,14 @@ agentGenerate <- function(n){
   
   alliance <- (alliance/100)
   
-  pursuit_amount <- sample(2:5, n, replace = T)
+  pursuit_amount <- sample(2:5, n, replace = T) #change this
+  
+  #assign agents an overlap strategy
+  strat <- sample(primies$prim_abbrev, n, prob = primies$prop, replace = T)
+  
   
   #put it all together in a df
-  agents <- data.frame(alliance, pursuit_amount)
+  agents <- data.frame(alliance, strat)
   
   return(agents)
   
@@ -251,6 +259,110 @@ overlap <- function(agent, adjMat, component) {
 
 
 
+#New Overlap Function#
+#each agent will calculate their alliance, gen, displacement, and defense overlap between themselves and every other agent
+#this vector will be stored in the row 
+
+
+#fold for alliance and gen, transpose for displacement to defense
+
+overlap_new <- function(adjMat){
+  
+  #Make empty matrices to store overlap for each prim
+  
+  allianceMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
+  generalizationMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
+  defenseMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
+  displacementMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
+  
+  #loop through each agent
+  
+  for(agent in 1:popSize){
+    
+    
+    #Alliance#
+    #calculate correlation of agent's row with other agents' rows 
+    
+      alliance = sapply(1:nrow(adjMat), function(i) {
+        
+        #only compute for agents that proceed main agent numerically to prevent a redundant calculation
+        if (i <= agent) 
+          return(NA)
+        
+        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
+        exclude_indices <- c(agent, i)
+        x_filtered <- adjMat[i,-exclude_indices]
+        agent_row_filtered <- adjMat[agent,-exclude_indices]
+        
+        #calculate the similarity
+        weighted_jaccard(x_filtered, agent_row_filtered)
+      })
+      
+      #Add agent's score vector to their row in the overlap matrix corresponding to prim
+      allianceMat[agent,] <- alliance
+      
+      
+    #Generalization#
+    #calculate correlation of agent's column with other agents' columns
+      
+      generalization = sapply(1:ncol(adjMat), function(j) {
+        
+        #only compute for agents that proceed main agent numerically to prevent a redundant calculation
+        if (j <= agent)
+          return(NA)
+        
+        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
+        exclude_indices <- c(agent, j)
+        x_filtered <- adjMat[-exclude_indices, j]
+        agent_filtered <- adjMat[-exclude_indices, agent]
+        weighted_jaccard(x_filtered, agent_filtered)
+      })
+      
+      #Add agent's score vector to their row in the overlap matrix corresponding to prim
+      generalizationMat[agent,] <- generalization
+    
+      
+    #Displacement#
+    #calculate correlation of agent's row with other agents' columns
+      
+      displacement = sapply(1:nrow(adjMat), function(j) { #do all not some bc then we'll do inverse for displacement
+        
+        #avoid computing between self
+        if (j == agent)
+          return(NA)
+        
+        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
+        exclude_indices <- c(agent, j)
+        x_filtered <- adjMat[-exclude_indices, j]
+        agent_filtered <- adjMat[agent,-exclude_indices]
+        weighted_jaccard(x_filtered, agent_filtered)
+      })
+      
+      #Add agent's score vector to their row in the overlap matrix corresponding to prim
+      displacementMat[agent,] <- displacement
+    
+  }
+  
+  #Completing the matrices
+  
+  #Transpose the alliance matrix on itself since value for [i,j] = value for [j,i]
+  allianceMat[lower.tri(allianceMat)] <- t(allianceMat)[lower.tri(allianceMat)]
+  
+  #Transpose the generalization matrix on itself since value for [i,j] = value for [j,i]
+  generalizationMat[lower.tri(generalizationMat)] <- t(generalizationMat)[lower.tri(generalizationMat)]
+  
+  
+  #Transpose the displacement matrix to create defense mat since displacement value for [i,j] = defense value for [j,i]
+  
+  defenseMat <- t(displacementMat)
+  
+  
+  return(list(alliance = allianceMat, generalization = generalizationMat, displacement = displacementMat, defense = defenseMat))
+  
+}
+
+
+
 #Reciprocity Function#
 
 reciprocity <- function(agent, adjMat){
@@ -299,12 +411,6 @@ for(m in 1:modelLoops) {
   #Generate agents
   agents <- agentGenerate(popSize)
   
-  #run for all possible primitive combos
-  for (c in 1:length(all_combos)) {
-    
-    #get the primitives that correspond to that combo
-    primitives <- all_combos[[c]]
-    
     #generate adjacency matrix (populate with 1)
     adjMat <- matrix(1, nrow = popSize, ncol = popSize)
     
@@ -321,43 +427,16 @@ for(m in 1:modelLoops) {
       #create the empty noncumulative adjacency matrix
       noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
     
-      # Calculate overlap in previous adjacency matrix #
+      #Calculate overlap in previous adjacency matrix#
       
-      #if we are not on the null primitive...
-      if (!primitives[1] == "XX") {
-        
-        #make empty matrix list
-        overlap_matrices <- list()
-        
-        #for each primitive you will be using...
-        for (prim in primitives) {
-          #create a matrix for that primitive
-          overlap_matrices[[prim]] <- matrix(NA, nrow = popSize, ncol = popSize)
-          
-          #use overlap function to calculate overlap for that primitive
-          for (r in 1:nrow(overlap_matrices[[prim]])) {
-            overlap_matrices[[prim]][r,] <- overlap(r, matrix_list[[t - 1]], prim)
-          }
-          
-          #fold the the matrix
-          overlap_matrices[[prim]][lower.tri(overlap_matrices[[prim]])] <- t(overlap_matrices[[prim]])[lower.tri(overlap_matrices[[prim]])]
-        }
-        
-        
-        #calculate the final overlap score matrix
-        final_overlap_matrix <-
-          Reduce("+", lapply(primitives, function(prim)
-            overlap_matrices[[prim]])) / length(primitives)
-        
-        #for the null primitive, make overlap matrix filled with 1 (will have no effect when multiplied in pursuit val calculation)
-      } else {
-        final_overlap_matrix <- matrix(1, nrow = popSize, ncol = popSize)
-      }
+      #make empty matrix list
+      overlap_matrices <- overlap_new(pursuitMat)
       
       #Loop through each agent to compute their pursuits
       
       #for each agent...
       for (a in 1:nrow(agents)) {
+        
         #pull the overlap scores between themselves and the other agents from the final overlap matrix
         overlap_scores <- final_overlap_matrix[a, ]
         
@@ -445,7 +524,7 @@ for(m in 1:modelLoops) {
     print(c)
     
     
-  }
+  
 }
 
 results$numEdges[results$reassess == 1] <- 0
@@ -575,6 +654,13 @@ isolatesTail <- resultsTail %>%
 #        y = "percent of edges that are reciprocated",
 #        color = "primitives") +
 #   geom_smooth(se= F)
+
+
+
+overlap(50, adjMat = random_matrix, component = c("alliance"))
+
+
+random_matrix <- matrix(sample(1:100, replace = T), nrow = 20, ncol = 20)
 
 
 ```
