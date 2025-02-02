@@ -102,10 +102,10 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 500
+reassessments <- 300
 
 #number of loops for the whole model
-modelLoops <- 10
+modelLoops <- 1
 
 #list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
@@ -203,7 +203,7 @@ overlap <- function(agent, adjMat, component) {
     #Alliance#
     #calculate correlation of agent's row with other agents' rows 
       "alliance" = sapply(1:nrow(adjMat), function(i) {
-        if (i <= agent)
+        if (i == agent)
           return(NA)
         exclude_indices <- c(agent, i)
         x_filtered <- adjMat[i,-exclude_indices]
@@ -211,10 +211,22 @@ overlap <- function(agent, adjMat, component) {
         weighted_jaccard(x_filtered, agent_row_filtered)
       }),
     
+    
+    #Generalization#
+    #calculate correlation of agent's column with other agents' columns
+      "generalization" = sapply(1:ncol(adjMat), function(j) {
+        if (j == agent)
+          return(NA)
+        exclude_indices <- c(agent, j)
+        x_filtered <- adjMat[-exclude_indices, j]
+        agent_filtered <- adjMat[-exclude_indices, agent]
+        weighted_jaccard(x_filtered, agent_filtered)
+      }),
+    
     #Displacement#
     #calculate correlation of agent's row with other agents' columns
       "displacement" = sapply(1:nrow(adjMat), function(j) {
-        if (j <= agent)
+        if (j == agent) #transpose not valid for this and defense
           return(NA)
         exclude_indices <- c(agent, j)
         x_filtered <- adjMat[-exclude_indices, j]
@@ -225,21 +237,10 @@ overlap <- function(agent, adjMat, component) {
     #Defense#
     #calculate correlation of agent's column with other agents' rows
       "defense" = sapply(1:ncol(adjMat), function(i) {
-        if (i <= agent)
+        if (i == agent)
           return(NA)
         exclude_indices <- c(agent, i)
         x_filtered <- adjMat[i,-exclude_indices]
-        agent_filtered <- adjMat[-exclude_indices, agent]
-        weighted_jaccard(x_filtered, agent_filtered)
-      }),
-    
-    #Generalization#
-    #calculate correlation of agent's column with other agents' columns
-      "generalization" = sapply(1:ncol(adjMat), function(j) {
-        if (j <= agent)
-          return(NA)
-        exclude_indices <- c(agent, j)
-        x_filtered <- adjMat[-exclude_indices, j]
         agent_filtered <- adjMat[-exclude_indices, agent]
         weighted_jaccard(x_filtered, agent_filtered)
       })
@@ -248,6 +249,7 @@ overlap <- function(agent, adjMat, component) {
     return(scores)
   
   }
+
 
 
 
@@ -291,6 +293,8 @@ results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos) * rea
                       "num_four" = NA,
                       "assort_alliance" = NA)
 
+lastGraphs <- c()
+
 
 for(m in 1:modelLoops) {
   
@@ -331,6 +335,7 @@ for(m in 1:modelLoops) {
         
         #for each primitive you will be using...
         for (prim in primitives) {
+          
           #create a matrix for that primitive
           overlap_matrices[[prim]] <- matrix(NA, nrow = popSize, ncol = popSize)
           
@@ -338,16 +343,11 @@ for(m in 1:modelLoops) {
           for (r in 1:nrow(overlap_matrices[[prim]])) {
             overlap_matrices[[prim]][r,] <- overlap(r, matrix_list[[t - 1]], prim)
           }
-          
-          #fold the the matrix
-          overlap_matrices[[prim]][lower.tri(overlap_matrices[[prim]])] <- t(overlap_matrices[[prim]])[lower.tri(overlap_matrices[[prim]])]
         }
         
         
         #calculate the final overlap score matrix
-        final_overlap_matrix <-
-          Reduce("+", lapply(primitives, function(prim)
-            overlap_matrices[[prim]])) / length(primitives)
+        final_overlap_matrix <- Reduce("+", lapply(primitives, function(prim) overlap_matrices[[prim]])) / length(primitives)
         
         #for the null primitive, make overlap matrix filled with 1 (will have no effect when multiplied in pursuit val calculation)
       } else {
@@ -368,8 +368,7 @@ for(m in 1:modelLoops) {
         alliance_values <- agents$alliance
         
         #Combine overlap, reciprocity, and alliance scores into single calculation
-        pursuit_scores <-
-          overlap_scores * reciprocity_scores * alliance_values
+        pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
         
         #Randomize number of pursuits for the agent
         pursuitAmount <- pursuitAmount
@@ -440,7 +439,7 @@ for(m in 1:modelLoops) {
     }
     
     
-    #lastGraphs[[c]] <- igraph_list[[reassessments]]
+    lastGraphs[[c]] <- igraph_list[[reassessments]]
     
     print(c)
     
@@ -481,7 +480,7 @@ results$percentPersist <- (results$intersectLast/results$numEdges)*100
 #Edge Amount Plot#
 #plot the number of reciprocated edges throughout reassessment periods [average this across loops w SE]
 
-persist_plot <- ggplot(data = resultsTail,
+persist_plot <- ggplot(data = results,
        aes(x = reassess,
            y = numEdges,
            color = as.factor(loop),
@@ -564,17 +563,18 @@ isolatesTail <- resultsTail %>%
 
 
 
+#add vertex attributes
+for(r in 1:length(igraph_list)) {
+  
+  V(igraph_list[[r]])$name <- c(1:100)
+  
+  V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+  #V(igraph_list[[r]])$pursuitAmount <- agents$pursuit_amount[match(V(igraph_list[[r]])$name, rownames(agents))]
 
-# ggplot(data = results,
-#        aes(x = reassess,
-#            y = numEdges,
-#            color = as.factor(prims))) +
-#   labs(title = "",
-#        subtitle = "",
-#        x = "reassessment period",
-#        y = "percent of edges that are reciprocated",
-#        color = "primitives") +
-#   geom_smooth(se= F)
+  
+}
+
 
 
 ```
