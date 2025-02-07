@@ -349,29 +349,39 @@ reciprocity <- function(agent, adjMat){
 }
 
 
-#Contributions 
+#Contributions#
+#sum of the group's contributions divided equally among members
 
-payout <- function(matrix, agentDF){
+payoff <- function(gameMatrix, agentDF){
   
+  #start the sum
   contributionTot <- 0
   
-  groupIDs <- rownames(matrix)
+  #pull the row names to loop though
+  groupIDs <- rownames(gameMatrix)
   
+  #for each agent...
   for(agent in groupIDs){
     
+    #their max contribution is their alliance value
     maxContribution <- agentDF$alliance[row.names(agentDF) == agent] * 100
     
-    proportionTied <- sum(matrix[as.character(agent), ])/nrow(matrix)
+    #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
+    proportionTied <- sum(gameMatrix[as.character(agent), ])/nrow(gameMatrix)
     
+    #calculate their contribution 
     contribution <- maxContribution * proportionTied
     
+    #add their total contribution to those of the other agents
     contributionTot <- contributionTot + contribution
     
   }
   
+  #divide the pooled contributions by the number of agents in the group
   payout <- contributionTot/nrow(matrix)
   
-  return(payout)
+  #return the single payoff
+  return(payoff)
   
 }
 
@@ -400,29 +410,35 @@ for(m in 1:modelLoops) {
   
   print(m)
   
+  #add generation loop
+  
+  #create empty payoff vector to store payoffs (later used for reproduction)
+  payoffs <- vector(mode = "numeric", length = popSize)
+  
+  
   #Generate agents
   agents <- agentGenerate(popSize)
   
     #generate adjacency matrix (populate with 1)
-    adjMat <- matrix(1, nrow = popSize, ncol = popSize)
+    pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
     
     #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
-    matrix_list <- list(adjMat)
+    pursuitMatrix_list <- list(pursuitMatrix)
     
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
-    noncumMat_list <- list(adjMat)
+    tiesMatrix_list <- list(pursuitMatrix)
     
     
     #for each reassessment... (agents look backwards so start from 2)
     for (t in 2:reassessments) {
       
       #create the empty noncumulative adjacency matrix
-      noncumMat <- matrix(0, nrow = popSize, ncol = popSize)
+      tiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
     
       #Calculate overlap in previous adjacency matrix#
       
       #make empty matrix list
-      overlap_matrices <- overlap_prims(matrix_list[[t-1]])
+      overlap_matrices <- overlap_prims(pursuitMatrix_list[[t-1]])
       
       
       #for each agent...
@@ -432,7 +448,7 @@ for(m in 1:modelLoops) {
         overlap_scores <- overlap_mean(a, agents, overlap_matrices)
         
         #calculate the reciprocity scores between themselves and the other agents
-        reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
+        reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
         
         #calculate the alliance values
         alliance_values <- agents$alliance
@@ -448,19 +464,20 @@ for(m in 1:modelLoops) {
         pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
         
         #add 1 to their pursuits in the cumulative the adjacency matrix
-        adjMat[a, pursuit_indices] <- adjMat[a, pursuit_indices] + 1
+        pursuitMatrix[a, pursuit_indices] <- pursuitMatrix[a, pursuit_indices] + 1
         
         #and to the individual one
-        noncumMat[a, pursuit_indices] <- 1
+        tiesMatrix[a, pursuit_indices] <- 1
         
         
       }
       
-      #add the adjMat to the matrix list
-      matrix_list[[t]] <- adjMat
+      #add the pursuitMatrix to the matrix list
+      pursuitMatrix_list[[t]] <- pursuitMatrix
       
       #add the non cumulative matrix to its list
-      noncumMat_list[[t]] <- noncumMat
+      tiesMatrix_list[[t]] <- tiesMatrix
+      
       
       #Game#
       
@@ -474,14 +491,16 @@ for(m in 1:modelLoops) {
       gamerGroup <- c(gamerGroup, gamer)
       
       #subset the ties matrix to include only those in group
-      gamersMat <- random_matrix[gamerGroup, gamerGroup, drop = F]
+      gamersMat <- tiesMat[gamerGroup, gamerGroup, drop = F]
       
       #change the names back to original indices
       rownames(gamersMat) <- gamerGroup
       colnames(gamersMat) <- gamerGroup
       
+      #calculate the payoff each agent will receive
+      pay <- payoff(gamersMat, agents)
       
-      
+      payoffs[gamerGroup] <- pay
     
     }
     
@@ -502,7 +521,7 @@ for(m in 1:modelLoops) {
     
     
     igraph_list <-
-      lapply(noncumMat_list,
+      lapply(tiesMatrix_list,
              graph_from_adjacency_matrix,
              add.rownames = T)
     
