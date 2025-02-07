@@ -94,7 +94,7 @@ library(ndtv)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 200
+popSize <- 150
 
 #pursuitRange <- c(1:5)
 
@@ -105,7 +105,7 @@ pursuitAmount <- 3
 reassessments <- 500
 
 #number of loops for the whole model
-modelLoops <- 10
+modelLoops <- 1
 
 #list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
@@ -119,7 +119,7 @@ all_combos <- unlist(
 )
 
 #add the null option
-all_combos <- c(all_combos, "XX")
+#all_combos <- c(all_combos, "XX")
 
 #list the prim combo abbreviations in order to append later
 prim_abbrev <- c("A",
@@ -136,8 +136,8 @@ prim_abbrev <- c("A",
 "APG",
 "ADG",
 "PDG",
-"APDG",
-"XX") ##should I include NULL strategy?
+"APDG"
+) ##should I include NULL strategy?
 
 primies <- data.frame("prim_abbrev" = prim_abbrev, 
                       "prim_list" = I(all_combos))
@@ -349,6 +349,33 @@ reciprocity <- function(agent, adjMat){
 }
 
 
+#Contributions 
+
+payout <- function(matrix, agentDF){
+  
+  contributionTot <- 0
+  
+  groupIDs <- rownames(matrix)
+  
+  for(agent in groupIDs){
+    
+    maxContribution <- agentDF$alliance[row.names(agentDF) == agent] * 100
+    
+    proportionTied <- sum(matrix[as.character(agent), ])/nrow(matrix)
+    
+    contribution <- maxContribution * proportionTied
+    
+    contributionTot <- contributionTot + contribution
+    
+  }
+  
+  payout <- contributionTot/nrow(matrix)
+  
+  return(payout)
+  
+}
+
+
 
 ```
 
@@ -395,7 +422,7 @@ for(m in 1:modelLoops) {
       #Calculate overlap in previous adjacency matrix#
       
       #make empty matrix list
-      overlap_matrices <- overlap_prims(pursuitMat)
+      overlap_matrices <- overlap_prims(matrix_list[[t-1]])
       
       
       #for each agent...
@@ -435,7 +462,43 @@ for(m in 1:modelLoops) {
       #add the non cumulative matrix to its list
       noncumMat_list[[t]] <- noncumMat
       
+      #Game#
+      
+      #grab random agent
+      gamer <- sample(1:20, 1)
+      
+      #pull indices of agents' reciprocated ties
+      gamerGroup <- which(random_matrix[gamer, ] == 1)
+      
+      #add the gamer to the group indices
+      gamerGroup <- c(gamerGroup, gamer)
+      
+      #subset the ties matrix to include only those in group
+      gamersMat <- random_matrix[gamerGroup, gamerGroup, drop = F]
+      
+      #change the names back to original indices
+      rownames(gamersMat) <- gamerGroup
+      colnames(gamersMat) <- gamerGroup
+      
+      
+      
+    
     }
+    
+    #Reproduce#
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     
     igraph_list <-
@@ -452,33 +515,32 @@ for(m in 1:modelLoops) {
                                          delete.vertices = F) #maybe i can just do this with true to get groups
       
       #get total number of edges
-      numEdges <- length(E(igraph_list[[g]]))
-      
-      
-      #get edge overlap with previous graph
-      intersectLast <- ifelse(g > 1, length(E(intersection(igraph_list[[g - 1]], igraph_list[[g]]))), NA)
-      
-      #get number of groups
-      num_groups <- igraph::components(igraph_list[[g]])$no
-      
-      #get number of isolates
-      num_isolates <- length(max_cliques(igraph_list[[g]], min = 1, max = 1))
-      
-      #get number of closed groups of 4
-      num_four <-length(max_cliques(igraph_list[[g]], min = 4, max = 4))
-      
-      V(igraph_list[[g]])$name <- c(1:100)
-      
-      V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
-      
-      #add number of reciprocal edges to results df
-      results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
-      results$intersectLast[results$reassess == g & results$combo == c & results$loop == m] <- intersectLast
-      results$num_groups[results$reassess == g & results$combo == c & results$loop == m] <- num_groups
-      results$num_isolates[results$reassess == g & results$combo == c & results$loop == m] <- num_isolates
-      results$num_four[results$reassess == g & results$combo == c & results$loop == m] <- num_four
-      results$assort_alliance[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
-      
+      # numEdges <- length(E(igraph_list[[g]]))
+      # 
+      # #get edge overlap with previous graph
+      # intersectLast <- ifelse(g > 1, length(E(intersection(igraph_list[[g - 1]], igraph_list[[g]]))), NA)
+      # 
+      # #get number of groups
+      # num_groups <- igraph::components(igraph_list[[g]])$no
+      # 
+      # #get number of isolates
+      # num_isolates <- length(max_cliques(igraph_list[[g]], min = 1, max = 1))
+      # 
+      # #get number of closed groups of 4
+      # num_four <-length(max_cliques(igraph_list[[g]], min = 4, max = 4))
+      # 
+      # V(igraph_list[[g]])$name <- c(1:100)
+      # 
+      # V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
+      # 
+      # #add number of reciprocal edges to results df
+      # results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
+      # results$intersectLast[results$reassess == g & results$combo == c & results$loop == m] <- intersectLast
+      # results$num_groups[results$reassess == g & results$combo == c & results$loop == m] <- num_groups
+      # results$num_isolates[results$reassess == g & results$combo == c & results$loop == m] <- num_isolates
+      # results$num_four[results$reassess == g & results$combo == c & results$loop == m] <- num_four
+      # results$assort_alliance[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
+      # 
       
     }
     
@@ -604,8 +666,67 @@ isolatesTail <- resultsTail %>%
   )
 
 
+###########################################
 
 
+#create vector of unique alliance values in order 
+allianceVals <- sort(unique(agents$alliance))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on alliance values
+for (i in 1:nrow(agents)) {
+  
+  a <- agents$alliance[i]
+  
+  agents$color[i] <- cols[as.character(a)]
+}
+
+###
+
+# Generate 15 distinct colors
+color_palette <- distinctColorPalette(15) 
+
+# Map colors to categories
+category_colors <- setNames(color_palette, unique(agents$strat)) 
+
+# Assign colors based on category
+agents$stratColor <- category_colors[agents$strat]
+
+###
+
+
+#add vertex attributes
+for(r in 1:length(igraph_list)) {
+  
+  V(igraph_list[[r]])$name <- c(1:150)
+  
+  V(igraph_list[[r]])$alliance <- agents$alliance
+  
+  V(igraph_list[[r]])$strat <- agents$strat
+  
+  V(igraph_list[[r]])$color <- agents$stratColor
+  
+}
+
+
+plot(igraph_list[[500]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
+legend("topright", legend = names(category_colors), fill = category_colors, title = "Categories", border = "black", cex = 0.8, bty = "n")
 
 
 # ggplot(data = results,
@@ -624,7 +745,7 @@ isolatesTail <- resultsTail %>%
 overlap(50, adjMat = random_matrix, component = c("alliance"))
 
 
-random_matrix <- matrix(sample(1:100, replace = T), nrow = 20, ncol = 20)
+random_matrix <- matrix(sample(0:1, 400, replace = T), nrow = 20, ncol = 20)
 
 
 ```
