@@ -94,7 +94,7 @@ library(ndtv)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 150
+popSize <- 160
 
 #pursuitRange <- c(1:5)
 
@@ -102,10 +102,13 @@ popSize <- 150
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 500
+reassessments <- 300
 
 #number of loops for the whole model
 modelLoops <- 1
+
+#number of generations
+generations <- 10
 
 #list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
@@ -119,7 +122,7 @@ all_combos <- unlist(
 )
 
 #add the null option
-#all_combos <- c(all_combos, "XX")
+all_combos <- c(all_combos, "XX")
 
 #list the prim combo abbreviations in order to append later
 prim_abbrev <- c("A",
@@ -136,13 +139,19 @@ prim_abbrev <- c("A",
 "APG",
 "ADG",
 "PDG",
-"APDG"
+"APDG",
+"XX"
 ) ##should I include NULL strategy?
 
 primies <- data.frame("prim_abbrev" = prim_abbrev, 
                       "prim_list" = I(all_combos))
 
-primies$prop <- 0.0625
+
+primiesSampling <- rep(prim_abbrev, each = 10) #temporary, for 150 agents
+
+selStrength <- 0.15
+
+#primies$prop <- 0.0625
 
 
 #proportion of strats
@@ -170,10 +179,9 @@ agentGenerate <- function(n){
   
   alliance <- (alliance/100)
   
-  pursuit_amount <- sample(2:5, n, replace = T) #change this
+  #ID <- 1:n
   
-  #assign agents an overlap strategy
-  strat <- sample(primies$prim_abbrev, n, prob = primies$prop, replace = T)
+  strat <- sample(primiesSampling, n, replace = F)
   
   #put it all together in a df
   agents <- data.frame(alliance, strat)
@@ -295,11 +303,9 @@ overlap_prims <- function(adjMat){
   #Transpose the generalization matrix on itself since value for [i,j] = value for [j,i]
   generalizationMat[lower.tri(generalizationMat)] <- t(generalizationMat)[lower.tri(generalizationMat)]
   
-  
   #Transpose the displacement matrix to create defense mat since displacement value for [i,j] = defense value for [j,i]
   
   defenseMat <- t(displacementMat)
-  
   
   return(list(alliance = allianceMat, generalization = generalizationMat, displacement = displacementMat, defense = defenseMat))
   
@@ -310,18 +316,30 @@ overlap_prims <- function(adjMat){
 
 overlap_mean <- function(agent, agentsDF, matrixList){
   
-  #get the agent's prims from the agent DF
-  prims <- agentsDF$stratList[agent]
-  prims <- unlist(prims)
-  
-  #use only the matrices included in their prim combo
-  subsetMats <- matrixList[prims]
-  
-  #get the agent's rows from the prim mats
-  row_values <- do.call(rbind, lapply(subsetMats, function(mat) mat[agent, ]))
-  
-  #take the element wise average
-  means <- colMeans(row_values)
+  if (agentsDF$strat[agent] == "XX") {
+    
+    #if the agent is using the null strategy, return overlap scores of 1
+    means <- rep(1, popSize)
+    
+    #but for everyone else:
+  } else {
+    
+    #get the agent's prims from the agent DF
+    prims <- agentsDF$stratList[agent]
+    prims <- unlist(prims)
+    
+    #use only the matrices included in their prim combo
+    subsetMats <- matrixList[prims]
+    
+    #get the agent's rows from the prim mats
+    row_values <-
+      do.call(rbind, lapply(subsetMats, function(mat)
+        mat[agent,]))
+    
+    #take the element wise average
+    means <- colMeans(row_values)
+    
+  }
   
   return(means)
   
@@ -367,7 +385,7 @@ payoff <- function(gameMatrix, agentDF){
     maxContribution <- agentDF$alliance[row.names(agentDF) == agent] * 100
     
     #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
-    proportionTied <- sum(gameMatrix[as.character(agent), ])/nrow(gameMatrix)
+    proportionTied <- sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1)
     
     #calculate their contribution 
     contribution <- maxContribution * proportionTied
@@ -378,12 +396,41 @@ payoff <- function(gameMatrix, agentDF){
   }
   
   #divide the pooled contributions by the number of agents in the group
-  payout <- contributionTot/nrow(matrix)
+  pay <- contributionTot/nrow(gameMatrix)
   
   #return the single payoff
-  return(payoff)
+  return(pay)
   
 }
+
+
+
+#fitness <- runif(100, min = 0, max = 1)
+
+
+reproduce <- function(agentDF, payoffVector, selStrength, n){
+  
+  #rescale payoffs to be between 0-1
+  pay <- payoffVector - min(payoffVector)
+  pay <- pay/max(pay)
+  
+  #add constant to prob weight to fix strength of selection
+  pay <- pay + (1/selStrength) #the bigger the decimal, the larger the diff in probability
+  
+  #link payout to corresponding agent
+  agentDF$pay <- pay
+  
+  #generate random offspring
+  offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = pay),] #the bigger the decimal, the larger the diff
+  
+  #Reset IDs
+  row.names(offspringDF) <- 1:n
+  
+  return(offspringDF)
+  
+}
+
+
 
 
 
@@ -396,28 +443,37 @@ payoff <- function(gameMatrix, agentDF){
 
 start.time <- Sys.time()
 
-#initialize results df
-results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos) * reassessments),
-                      "combo" = rep(1:length(all_combos),each = reassessments),
-                      "reassess" = rep(1:reassessments),
-                      "num_isolates" = NA,
-                      "num_groups" = NA,
-                      "num_four" = NA,
-                      "assort_alliance" = NA)
+results <- data.frame("generation" = rep(1:generations, each = length(all_combos)),
+                      "combo" = rep(prim_abbrev),
+                      "amount" = NA)
+
+resultsbind <- data.frame("generation" = rep(11:50, each = length(all_combos)),
+                      "combo" = rep(prim_abbrev),
+                      "amount" = NA)
+
+results <- rbind(results, resultsbind)
+
+results$amount[results$generation == 1] <- 10
+
 
 
 for(m in 1:modelLoops) {
   
   print(m)
   
-  #add generation loop
-  
-  #create empty payoff vector to store payoffs (later used for reproduction)
-  payoffs <- vector(mode = "numeric", length = popSize)
-  
-  
-  #Generate agents
+  #Generate parent agents
   agents <- agentGenerate(popSize)
+  
+  final_tiesMatrices <- list(length = generations)
+  
+  lastGraphs <- list(length = generations)
+  
+  payoff_list <- list(length = generations)
+  
+  #Loop through generations
+  for(g in 11:20){
+    
+    print(g) #for keeping track
   
     #generate adjacency matrix (populate with 1)
     pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
@@ -426,7 +482,7 @@ for(m in 1:modelLoops) {
     pursuitMatrix_list <- list(pursuitMatrix)
     
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
-    tiesMatrix_list <- list(pursuitMatrix)
+    tiesMatrix_list <- list(length = reassessments)
     
     
     #for each reassessment... (agents look backwards so start from 2)
@@ -454,11 +510,7 @@ for(m in 1:modelLoops) {
         alliance_values <- agents$alliance
         
         #Combine overlap, reciprocity, and alliance scores into single calculation
-        pursuit_scores <-
-          overlap_scores * reciprocity_scores * alliance_values
-        
-        #Randomize number of pursuits for the agent
-        pursuitAmount <- pursuitAmount
+        pursuit_scores <-overlap_scores * reciprocity_scores * alliance_values
         
         #sort by product in descending order and get the indices of the top value agents
         pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -477,21 +529,24 @@ for(m in 1:modelLoops) {
       
       #add the non cumulative matrix to its list
       tiesMatrix_list[[t]] <- tiesMatrix
+    
+    }
+    
+    #Game#
       
-      
-      #Game#
-      
-      #grab random agent
-      gamer <- sample(1:20, 1)
+    #create empty payoff vector to store payoffs (later used for reproduction)
+    payoffs <- vector(mode = "numeric", length = popSize)
+    
+    for(gamer in 1:popSize){
       
       #pull indices of agents' reciprocated ties
-      gamerGroup <- which(random_matrix[gamer, ] == 1)
+      gamerGroup <- which(tiesMatrix[gamer, ] == 1)
       
       #add the gamer to the group indices
       gamerGroup <- c(gamerGroup, gamer)
       
       #subset the ties matrix to include only those in group
-      gamersMat <- tiesMat[gamerGroup, gamerGroup, drop = F]
+      gamersMat <- tiesMatrix[gamerGroup, gamerGroup, drop = F]
       
       #change the names back to original indices
       rownames(gamersMat) <- gamerGroup
@@ -500,85 +555,53 @@ for(m in 1:modelLoops) {
       #calculate the payoff each agent will receive
       pay <- payoff(gamersMat, agents)
       
-      payoffs[gamerGroup] <- pay
-    
+      payoffs[gamerGroup] <- payoffs[gamerGroup] + pay
+      
     }
     
+    
+    payoff_list[[g]] <- payoffs
+      
     #Reproduce#
     
+    igraph <- graph_from_adjacency_matrix(tiesMatrix)
+   
+    V(igraph)$alliance <- agents$alliance
+  
+    V(igraph)$strat <- agents$strat
+  
+    lastGraphs[[g]] <- igraph
     
     
+    #agents reproduce
+    agents <- reproduce(agents, payoffs, selStrength, popSize)
+    
+    #change alliance values to be within SD of parent
+    # for (a in 1:nrow(agents)) {
+    #   
+    #   agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
+    #   
+    # }
+    
+    final_tiesMatrices[[g]] <- tiesMatrix
     
     
+    #get the breakdown of strat population
+    stratTable <- as.data.frame(table(agents$strat))
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    igraph_list <-
-      lapply(tiesMatrix_list,
-             graph_from_adjacency_matrix,
-             add.rownames = T)
-    
-    #loop through each igraph object
-    for (g in 1:length(igraph_list)) {
+    #add the amounts to the results df
+    results$amount[results$generation == g+1] <- stratTable$Freq[match(results$combo, stratTable$Var1)]
       
-      #only include edges that are reciprocated
-      igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                         E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                         delete.vertices = F) #maybe i can just do this with true to get groups
-      
-      #get total number of edges
-      # numEdges <- length(E(igraph_list[[g]]))
-      # 
-      # #get edge overlap with previous graph
-      # intersectLast <- ifelse(g > 1, length(E(intersection(igraph_list[[g - 1]], igraph_list[[g]]))), NA)
-      # 
-      # #get number of groups
-      # num_groups <- igraph::components(igraph_list[[g]])$no
-      # 
-      # #get number of isolates
-      # num_isolates <- length(max_cliques(igraph_list[[g]], min = 1, max = 1))
-      # 
-      # #get number of closed groups of 4
-      # num_four <-length(max_cliques(igraph_list[[g]], min = 4, max = 4))
-      # 
-      # V(igraph_list[[g]])$name <- c(1:100)
-      # 
-      # V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
-      # 
-      # #add number of reciprocal edges to results df
-      # results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
-      # results$intersectLast[results$reassess == g & results$combo == c & results$loop == m] <- intersectLast
-      # results$num_groups[results$reassess == g & results$combo == c & results$loop == m] <- num_groups
-      # results$num_isolates[results$reassess == g & results$combo == c & results$loop == m] <- num_isolates
-      # results$num_four[results$reassess == g & results$combo == c & results$loop == m] <- num_four
-      # results$assort_alliance[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
-      # 
-      
+    
     }
     
-    
-    #lastGraphs[[c]] <- igraph_list[[reassessments]]
-    
-    print(c)
-    
-    
+  end.time <- Sys.time()
+  print(end.time)
   
-}
+  }
+  
 
-results$numEdges[results$reassess == 1] <- 0
-results$intersectLast[results$reassess == 2] <- 0
-results$num_isolates[results$reassess == 1] <- 100
-
-results$prims <- primies$prim_abbrev[match(results$combo, rownames(primies))]
-
-
+#remember that ties mat has all pursuits, not just reciprocal
 
 
 
@@ -587,6 +610,11 @@ end.time <- Sys.time()
 print(end.time - start.time)
 
 
+
+      
+      
+      
+      
 ```
 
 ### Analysis
@@ -594,8 +622,66 @@ print(end.time - start.time)
 ```{r analysis}
 
 
+results_labs <- resultsShort %>%
+  group_by(combo) %>%
+  filter(generation == max(generation)) %>%
+  ungroup()
+
+
+  
+p1 <- ggplot(data = resultsShort,
+               aes(x = generation,
+                   y = amount,
+                   color = combo)) +
+  labs(x = "Generation",
+       y = "Population",
+       color = "Phenotype") +
+  geom_line() +
+  geom_text(
+    data = results_labs,
+    aes(label = combo),
+    hjust = -0.1,
+    size = 4,
+    fontface = "bold"
+  ) +
+  xlim(min(results$generation), max(results$generation) + 0.5) +  # Give space for labels
+  theme_minimal()
+
+
+
+
+
+
+
+
 #calculate percent of edges that are present in previous reassessment period
 results$percentPersist <- (results$intersectLast/results$numEdges)*100
+
+
+lastGraphsFull <- lastGraphs
+
+#only include edges that are reciprocated
+for(g in 1:length(lastGraphs)) {
+  lastGraphs[[g]] <- subgraph.edges(lastGraphs[[g]],
+                                    E(lastGraphs[[g]])[which_mutual(lastGraphs[[g]])],
+                                    delete.vertices = F) #maybe i can just do this with true to get groups
+  
+}
+
+
+
+plot(lastGraphsFull[[1]],
+     layout = layout.fruchterman.reingold,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
 
 
 
@@ -733,7 +819,7 @@ for(r in 1:length(igraph_list)) {
 }
 
 
-plot(igraph_list[[500]],
+plot(lastGraphs[[1]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
