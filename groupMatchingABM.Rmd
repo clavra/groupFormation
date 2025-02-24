@@ -86,6 +86,7 @@ library(network)
 library(networkDynamic)
 library(intergraph)
 library(ndtv)
+library(dplyr)
 
 ```
 
@@ -108,7 +109,7 @@ reassessments <- 300
 modelLoops <- 1
 
 #number of generations
-generations <- 10
+generations <- 180
 
 #list the four primitives...
 all_primitives <- c("alliance", "displacement", "defense", "generalization")
@@ -443,18 +444,19 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
 
 start.time <- Sys.time()
 
-results <- data.frame("generation" = rep(1:generations, each = length(all_combos)),
+results <- data.frame("generation" = rep(0:generations, each = length(all_combos)),
                       "combo" = rep(prim_abbrev),
-                      "amount" = NA)
+                      "population" = NA)
 
-resultsbind <- data.frame("generation" = rep(11:50, each = length(all_combos)),
-                      "combo" = rep(prim_abbrev),
-                      "amount" = NA)
-
-results <- rbind(results, resultsbind)
-
-results$amount[results$generation == 1] <- 10
-
+# resultsbind <- data.frame("generation" = rep(151:200, each = length(all_combos)),
+#                       "combo" = rep(prim_abbrev),
+#                       "population" = NA)
+# 
+# results <- rbind(results, resultsbind)
+# 
+  results$population[results$generation == 0] <- 10
+# 
+# names(results)[names(results) == 'amount'] <- 'population'
 
 
 for(m in 1:modelLoops) {
@@ -470,8 +472,9 @@ for(m in 1:modelLoops) {
   
   payoff_list <- list(length = generations)
   
-  #Loop through generations
-  for(g in 11:20){
+  g <- 1
+  
+  while(g <= generations){
     
     print(g) #for keeping track
   
@@ -590,15 +593,19 @@ for(m in 1:modelLoops) {
     stratTable <- as.data.frame(table(agents$strat))
     
     #add the amounts to the results df
-    results$amount[results$generation == g+1] <- stratTable$Freq[match(results$combo, stratTable$Var1)]
+    results$population[results$generation == g] <- stratTable$Freq[match(results$combo, stratTable$Var1)]
       
+    print(stratTable)
     
+    if (max(results$population) >= 160) {
+      break  # Exit the loop early if condition is met
     }
     
-  end.time <- Sys.time()
-  print(end.time)
-  
+    g <- g+1
+    
   }
+  
+}
   
 
 #remember that ties mat has all pursuits, not just reciprocal
@@ -611,9 +618,7 @@ print(end.time - start.time)
 
 
 
-      
-      
-      
+
       
 ```
 
@@ -621,17 +626,18 @@ print(end.time - start.time)
 
 ```{r analysis}
 
+#do bar graph with generations on x, phenotype on y, and goes to max generation with at least 1 offspring of that phenotype
 
-results_labs <- resultsShort %>%
+results_labs <- results %>%
   group_by(combo) %>%
   filter(generation == max(generation)) %>%
   ungroup()
 
+#results <- results[results$generation < 141,]
 
-  
-p1 <- ggplot(data = resultsShort,
+p1 <- ggplot(data = results,
                aes(x = generation,
-                   y = amount,
+                   y = population,
                    color = combo)) +
   labs(x = "Generation",
        y = "Population",
@@ -670,7 +676,7 @@ for(g in 1:length(lastGraphs)) {
 
 
 
-plot(lastGraphsFull[[1]],
+plot(lastGraphs[[2]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -819,7 +825,7 @@ for(r in 1:length(igraph_list)) {
 }
 
 
-plot(lastGraphs[[1]],
+plot(lastGraphs[[10]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
