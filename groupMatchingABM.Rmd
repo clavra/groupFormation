@@ -478,6 +478,8 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
     tiesMatrix_list <- list(length = reassessments)
     
+    #create empty payoff vector to store payoffs (later used for reproduction)
+    payoffs <- vector(mode = "numeric", length = popSize)
     
     #for each reassessment... (agents look backwards so start from 2)
     for (t in 2:reassessments) {
@@ -524,14 +526,12 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       #add the non cumulative matrix to its list
       tiesMatrix_list[[t]] <- tiesMatrix
       
-    }
-    
+      
     #Game#
-    
-    #create empty payoff vector to store payoffs (later used for reproduction)
-    payoffs <- vector(mode = "numeric", length = popSize)
-    
-    for(gamer in 1:popSize){
+      
+      
+      #randomly pick one agent to play game
+      gamer <- sample(popSize, 1)
       
       #pull indices of agents' reciprocated ties
       gamerGroup <- which(tiesMatrix[gamer, ] == 1)
@@ -549,6 +549,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       #calculate the payoff each agent will receive
       payoffs <- payoff(gamersMat, agents, payoffs)
       
+    
     }
     
     #Reproduce#
@@ -556,12 +557,12 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
     #change alliance values to be within SD of parent
-    # for (a in 1:nrow(agents)) {
-    #   
-    #   agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
-    #   
-    # }
-    
+    for (a in 1:nrow(agents)) {
+
+      agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
+
+    }
+
     #get the breakdown of strat population
     stratTable <- as.data.frame(table(agents$strat))
     stratTable$loop <- m
@@ -752,11 +753,11 @@ for(m in 1:modelLoops) {
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
     #change alliance values to be within SD of parent
-    # for (a in 1:nrow(agents)) {
-    #   
-    #   agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
-    #   
-    # }
+    for (a in 1:nrow(agents)) {
+
+      agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
+
+    }
     
     final_tiesMatrices[[g]] <- tiesMatrix
     
