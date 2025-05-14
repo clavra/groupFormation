@@ -113,7 +113,7 @@ modelLoops <- 20
 generations <- 300
 
 #list the four primitives...
-all_primitives <- c("alliance", "displacement", "defense", "generalization")
+all_primitives <- c("A", "P", "D", "G")
 
 #make list of all possible combinations of the prims
 all_combos <- unlist(
@@ -173,21 +173,30 @@ agentGenerate <- function(n){
   
   #randomly generate 3 traits and their corresponding preferences for each agent
 
-  alliance <- abs(rnorm(popSize, mean = 50, sd = 10))
+  association <- abs(rnorm(popSize, mean = 50, sd = 10))
   
-  alliance <- round(alliance, digits = 0)
+  association <- round(association, digits = 0)
   
-  alliance <- (alliance/100)
+  association <- (association/100)
   
   #ID <- 1:n
   
   strat <- sample(primiesSampling, n, replace = F)
   
   #put it all together in a df
-  agents <- data.frame(alliance, strat)
+  agents <- data.frame(association, strat)
   
   #add the actual list of primitives to agent's row to be referenced in life cycle
   agents$stratList <- primies$prim_list[match(agents$strat, primies$prim_abbrev)]
+  
+  for(a in 1:nrow(agents)){
+  
+  agents$A[a] <- ifelse(grepl("A", agents$strat[a], fixed=TRUE), 1, 0)
+  agents$G[a] <- ifelse(grepl("G", agents$strat[a], fixed=TRUE), 1, 0)
+  agents$D[a] <- ifelse(grepl("D", agents$strat[a], fixed=TRUE), 1, 0)
+  agents$P[a] <- ifelse(grepl("P", agents$strat[a], fixed=TRUE), 1, 0)
+  
+  }
   
   return(agents)
   
