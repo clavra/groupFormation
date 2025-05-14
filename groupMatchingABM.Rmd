@@ -307,7 +307,7 @@ overlap_prims <- function(adjMat){
   
   defenseMat <- t(displacementMat)
   
-  return(list(alliance = allianceMat, generalization = generalizationMat, displacement = displacementMat, defense = defenseMat))
+  return(list(A = allianceMat, G = generalizationMat, P = displacementMat, D = defenseMat))
   
 }
 
@@ -316,34 +316,28 @@ overlap_prims <- function(adjMat){
 
 overlap_mean <- function(agent, agentsDF, matrixList){
   
-  if (agentsDF$strat[agent] == "XX") {
+ #for a given agent:
+  
+  #get her binary prim vector from agent DF
+  prims <- agentsDF[agent, c("A","G","P","D")]
+  
+  #get the names of the prims she is to use
+  selectedPrims <- names(prims)[prims == 1]
+  
+  #get only the prim matrices she will be using
+  selectedMats <- matrixList[selectedPrims]
     
-    #if the agent is using the null strategy, return overlap scores of 1
-    means <- rep(1, popSize)
-    
-    #but for everyone else:
-  } else {
-    
-    #get the agent's prims from the agent DF
-    prims <- agentsDF$stratList[agent]
-    prims <- unlist(prims)
-    
-    #use only the matrices included in their prim combo
-    subsetMats <- matrixList[prims]
-    
-    #get the agent's rows from the prim mats
-    row_values <-
-      do.call(rbind, lapply(subsetMats, function(mat)
+    #get her rows from the prim mats and bind them together
+    row_values <- do.call(rbind, lapply(selectedMats, function(mat)
         mat[agent,]))
     
     #take the element wise average
-    means <- colMeans(row_values)
+    means <- ifelse(is.null(row_values), 1, colMeans(row_values))
     
-  }
-  
-  return(means)
-  
-} 
+    #return the vector of means, where each element is her overlap score with each other agent
+    return(means)
+    
+}
 
 
 #Reciprocity Function#
