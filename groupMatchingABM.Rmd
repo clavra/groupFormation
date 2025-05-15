@@ -28,9 +28,9 @@ They will also have a number of pursuits they can make per regrouping period.
 
 #### Gather info
 
-Each agent will calculate three scores with respect to other agents: alliance value, reciprocity score, and overlap score.
+Each agent will calculate three scores with respect to other agents: association value, reciprocity score, and overlap score.
 
-The alliance value is calculated by taking the euclidean distance of the agent's preferences with the other agents' traits. 
+The association value is calculated by taking the euclidean distance of the agent's preferences with the other agents' traits. 
 
 The reciprocity score is the proportion of pursuits between the agent and each other agent that are reciprocated.
 
@@ -48,7 +48,7 @@ The overlap score is a measurement of pursuit similarity (both sent and received
   
 These three scores are then formulated to produce a single pursuit score:
 
-  pursuit value = alliance value + (reciprocity score + overlap score)
+  pursuit value = association value + (reciprocity score + overlap score)
 
 
 #### Pursue agents
@@ -153,10 +153,7 @@ primiesSampling <- rep(prim_abbrev, each = 10) #temporary, for 150 agents
 
 selStrength <- 0.15
 
-#primies$prop <- 0.0625
-
-
-#proportion of strats
+flipProb <- 0.05
 
 
 
@@ -185,9 +182,6 @@ agentGenerate <- function(n){
   
   #put it all together in a df
   agents <- data.frame(association, strat)
-  
-  #add the actual list of primitives to agent's row to be referenced in life cycle
-  agents$stratList <- primies$prim_list[match(agents$strat, primies$prim_abbrev)]
   
   for(a in 1:nrow(agents)){
   
@@ -323,12 +317,12 @@ overlap_prims <- function(adjMat){
 #Overlap Score Calculation#
 #average based on agent's prim strat
 
-overlap_mean <- function(agent, agentsDF, matrixList){
+overlap_mean <- function(agent, agentDF, matrixList){
   
  #for a given agent:
   
   #get her binary prim vector from agent DF
-  prims <- agentsDF[agent, c("A","G","P","D")]
+  prims <- agentDF[agent, c("A","G","P","D")]
   
   #get the names of the prims she is to use
   selectedPrims <- names(prims)[prims == 1]
@@ -384,8 +378,8 @@ payoff <- function(gameMatrix, agentDF, payoffs){
   #for each agent...
   for(agent in groupIDs){
     
-    #their max contribution is their alliance value
-    maxContribution <- agentDF$alliance[row.names(agentDF) == agent] * 100
+    #their max contribution is their association value
+    maxContribution <- agentDF$association[row.names(agentDF) == agent] * 100
     
     #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
     proportionTied <- sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1)
@@ -415,8 +409,9 @@ payoff <- function(gameMatrix, agentDF, payoffs){
 
 
 
-#fitness <- runif(100, min = 0, max = 1)
 
+#Reproduce#
+#agents reproduce using roulette wheel selection, higher payoff = better reproductive success
 
 reproduce <- function(agentDF, payoffVector, selStrength, n){
   
@@ -436,9 +431,43 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
   #Reset IDs
   row.names(offspringDF) <- 1:n
   
+  
   return(offspringDF)
   
 }
+
+
+#Mutate#
+#add mutations to the offspring's association value and strategies they use
+
+mutateBabies <- function(agentDF, flipProb) {
+  
+  #for each agent...
+  for (a in 1:nrow(agentDF)) {
+    
+    #change their association value to be within certain SD of original parent AV
+    agentDF$association[a] <- rnorm(1, mean = agentDF$association[a], sd = .10)
+    
+    #then for each of the four strategy columns...
+    for (c in 4:ncol(agentDF)) {
+      
+      #see whether or not to flip the value based on a certain probability
+      random_flip <- rbinom(1, 1, flipProb)
+      
+      #if random flip is true, then flip the value
+      agentDF[a, c] <- ifelse(random_flip == 1, 1 - agentDF[a, c], agentDF[a, c])
+      
+    }
+    
+    #populate the strat column to accurately reflect the strats being used
+    agentDF$strat[a] <- paste(names(agentDF)[agentDF[a,] == 1],collapse="")
+    
+  }
+  
+  return(agentDF)
+  
+}
+
 ```
 
 
@@ -490,6 +519,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       #create the empty noncumulative adjacency matrix
       tiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
       
+      
       #Calculate overlap in previous adjacency matrix#
       
       #make empty matrix list
@@ -505,11 +535,11 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
         #calculate the reciprocity scores between themselves and the other agents
         reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
         
-        #calculate the alliance values
-        alliance_values <- agents$alliance
+        #calculate the association values
+        association_values <- agents$association
         
-        #Combine overlap, reciprocity, and alliance scores into single calculation
-        pursuit_scores <-overlap_scores * reciprocity_scores * alliance_values
+        #Combine overlap, reciprocity, and association scores into single calculation
+        pursuit_scores <-overlap_scores * reciprocity_scores * association_values
         
         #sort by product in descending order and get the indices of the top value agents
         pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -559,12 +589,9 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     #agents reproduce
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
-    #change alliance values to be within SD of parent
-    for (a in 1:nrow(agents)) {
-
-      agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
-
-    }
+    #mutate the association value and strategies of the offspring
+    agents <- mutateBabies(agents, associationSD, flipProb)
+    
 
     #get the breakdown of strat population
     stratTable <- as.data.frame(table(agents$strat))
@@ -596,19 +623,6 @@ print(endTime - startTime)
 
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -685,11 +699,11 @@ for(m in 1:modelLoops) {
         #calculate the reciprocity scores between themselves and the other agents
         reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
         
-        #calculate the alliance values
-        alliance_values <- agents$alliance
+        #calculate the association values
+        association_values <- agents$association
         
-        #Combine overlap, reciprocity, and alliance scores into single calculation
-        pursuit_scores <-overlap_scores * reciprocity_scores * alliance_values
+        #Combine overlap, reciprocity, and association scores into single calculation
+        pursuit_scores <-overlap_scores * reciprocity_scores * association_values
         
         #sort by product in descending order and get the indices of the top value agents
         pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
@@ -745,7 +759,7 @@ for(m in 1:modelLoops) {
     
     igraph <- graph_from_adjacency_matrix(tiesMatrix)
    
-    V(igraph)$alliance <- agents$alliance
+    V(igraph)$association <- agents$association
   
     V(igraph)$strat <- agents$strat
   
@@ -755,13 +769,10 @@ for(m in 1:modelLoops) {
     #agents reproduce
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
-    #change alliance values to be within SD of parent
-    for (a in 1:nrow(agents)) {
-
-      agents$alliance[a] <- rnorm(1, mean = agents$alliance[a], sd = .10)
-
-    }
+    #mutate the association value and strategies of the offspring
+    agents <- mutateBabies(agents, associationSD, flipProb)
     
+    #add the ties matrix to the list
     final_tiesMatrices[[g]] <- tiesMatrix
     
     
@@ -918,7 +929,7 @@ print(persist_plot)
 #subset results df to only tail entries (after model converges)
 resultsTail <- results[results$reassess > reassessments - 100,]
 
-#calculate mean edge persistence, alliance val assortativity, and number of isolates 
+#calculate mean edge persistence, association val assortativity, and number of isolates 
 
 edgesTail <- resultsTail %>%
   group_by(prims) %>%
@@ -939,8 +950,8 @@ persistTail <- resultsTail %>%
 assortTail <- resultsTail %>%
   group_by(prims) %>%
   summarize(
-    meanAssort = mean(assort_alliance, na.rm = TRUE),
-    sdAssort = sd(assort_alliance, na.rm = TRUE),
+    meanAssort = mean(assort_association, na.rm = TRUE),
+    sdAssort = sd(assort_association, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -956,19 +967,19 @@ isolatesTail <- resultsTail %>%
 ###########################################
 
 
-#create vector of unique alliance values in order 
-allianceVals <- sort(unique(agents$alliance))
+#create vector of unique association values in order 
+associationVals <- sort(unique(agents$association))
 
 #create color ramp palette
-cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(allianceVals)), allianceVals)
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(associationVals)), associationVals)
 
 # initialize color vector
 vertColors <- rep(NA, popSize)
 
-# assign colors based on alliance values
+# assign colors based on association values
 for (i in 1:nrow(agents)) {
   
-  a <- agents$alliance[i]
+  a <- agents$association[i]
   
   agents$color[i] <- cols[as.character(a)]
 }
@@ -992,7 +1003,7 @@ for(r in 1:length(igraph_list)) {
   
   V(igraph_list[[r]])$name <- c(1:150)
   
-  V(igraph_list[[r]])$alliance <- agents$alliance
+  V(igraph_list[[r]])$association <- agents$association
   
   V(igraph_list[[r]])$strat <- agents$strat
   
@@ -1029,7 +1040,7 @@ legend("topright", legend = names(category_colors), fill = category_colors, titl
 
 
 
-overlap(50, adjMat = random_matrix, component = c("alliance"))
+overlap(50, adjMat = random_matrix, component = c("association"))
 
 
 random_matrix <- matrix(sample(0:1, 400, replace = T), nrow = 20, ncol = 20)
