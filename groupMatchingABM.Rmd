@@ -590,7 +590,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
     #mutate the association value and strategies of the offspring
-    agents <- mutateBabies(agents, associationSD, flipProb)
+    agents <- mutateBabies(agents, flipProb)
     
 
     #get the breakdown of strat population
@@ -677,6 +677,8 @@ for(m in 1:modelLoops) {
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
     tiesMatrix_list <- list(length = reassessments)
     
+    #create empty payoff vector to store payoffs (later used for reproduction)
+    payoffs <- vector(mode = "numeric", length = popSize)
     
     #for each reassessment... (agents look backwards so start from 2)
     for (t in 2:reassessments) {
@@ -722,36 +724,32 @@ for(m in 1:modelLoops) {
       
       #add the non cumulative matrix to its list
       tiesMatrix_list[[t]] <- tiesMatrix
-    
-    }
-    
-    #Game#
       
-    #create empty payoff vector to store payoffs (later used for reproduction)
-    payoffs <- vector(mode = "numeric", length = popSize)
-    
-    for(gamer in 1:popSize){
+      #Game#
       
-      #pull indices of agents' reciprocated ties
-      gamerGroup <- which(tiesMatrix[gamer, ] == 1)
+      #create empty payoff vector to store payoffs (later used for reproduction)
+      #payoffs <- vector(mode = "numeric", length = popSize)
       
-      #add the gamer to the group indices
-      gamerGroup <- c(gamerGroup, gamer)
+        #randomly pick one agent to play game
+        gamer <- sample(popSize, 1)
       
-      #subset the ties matrix to include only those in group
-      gamersMat <- tiesMatrix[gamerGroup, gamerGroup, drop = F]
-      
-      #change the names back to original indices
-      rownames(gamersMat) <- gamerGroup
-      colnames(gamersMat) <- gamerGroup
-      
-      #calculate the payoff each agent will receive
-      pay <- payoff(gamersMat, agents)
-      
-      
+        #pull indices of agents' reciprocated ties
+        gamerGroup <- which(tiesMatrix[gamer, ] == 1)
+        
+        #add the gamer to the group indices
+        gamerGroup <- c(gamerGroup, gamer)
+        
+        #subset the ties matrix to include only those in group
+        gamersMat <- tiesMatrix[gamerGroup, gamerGroup, drop = F]
+        
+        #change the names back to original indices
+        rownames(gamersMat) <- gamerGroup
+        colnames(gamersMat) <- gamerGroup
+        
+        #calculate the payoff each agent will receive
+        payoffs <- payoff(gamersMat, agents, payoffs)
       
     }
-    
     
     payoff_list[[g]] <- payoffs
       
@@ -770,7 +768,7 @@ for(m in 1:modelLoops) {
     agents <- reproduce(agents, payoffs, selStrength, popSize)
     
     #mutate the association value and strategies of the offspring
-    agents <- mutateBabies(agents, associationSD, flipProb)
+    agents <- mutateBabies(agents, flipProb)
     
     #add the ties matrix to the list
     final_tiesMatrices[[g]] <- tiesMatrix
@@ -803,9 +801,9 @@ end.time <- Sys.time()
 
 print(end.time - start.time)
 
+results_may18 <- results
 
-
-
+write.csv(results_may18, "C:/Users/clavra/Documents/groupFormation/results_may18.csv")
       
 ```
 
@@ -813,7 +811,7 @@ print(end.time - start.time)
 
 ```{r analysis}
 
-#do bar graph with generations on x, phenotype on y, and goes to max generation with at least 1 offspring of that phenotype
+#do bar graph with generations on x, phenotype on y, and goes to max generation with at least 1 offspring of that phenotype 
 
 results_labs <- results %>%
   group_by(Var1) %>%
@@ -861,9 +859,11 @@ for(g in 1:length(lastGraphs)) {
   
 }
 
+E(lastGraphs[[76]])
 
+#check the strats of those with recip ties
 
-plot(lastGraphs[[2]],
+plot(lastGraphsFull[[300]],
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
@@ -984,10 +984,65 @@ for (i in 1:nrow(agents)) {
   agents$color[i] <- cols[as.character(a)]
 }
 
-###
+#############
+
+# graph_list <- lapply(tiesMatrix_list, function(mat) {
+#   graph_from_adjacency_matrix(mat, mode = "directed", diag = FALSE)
+# })
+#add vertex attributes
+
+tiesMat_list <- lapply(tiesMat_list, function(mat) {
+  rownames(mat) <- colnames(mat) <- as.character(1:160)
+  mat
+})
+
+igraph_list <- lapply(tiesMat_list, graph_from_adjacency_matrix, add.rownames = T)
+  
+#loop through each igraph object
+for (g in 1:length(igraph_list)) {
+  
+  #only include edges that are reciprocated
+  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+                                     E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+                                     delete.vertices = F) #maybe i can just do this with true to get groups
+  
+  #just curious
+  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
+  
+  
+}
+
+
+
+for(r in 1:length(igraph_list)) {
+  
+  #V(igraph_list[[r]])$name <- c(1:160)
+  
+  V(igraph_list[[r]])$association <- agents$association[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+   V(graph_list[[r]])$strat <- agents$strat[match(V(igraph_list[[r]])$name, rownames(agents))]
+  
+  V(graph_list[[r]])$color <- agents$stratColor[match(V(igraph_list[[r]])$name, rownames(agents))]
+
+  
+}
+
+vertex_names <- as.character(V(igraph_list[[r]])$name)
+agent_ids <- rownames(agents)
+
+# Confirm:
+all(vertex_names %in% agent_ids)  # Should be TRUE
+
+#only include edges that are reciprocated
+for(g in 1:length(graph_list)) {
+  graph_list[[g]] <- subgraph.edges(graph_list[[g]],
+                                    E(graph_list[[g]])[which_mutual(graph_list[[g]])],
+                                    delete.vertices = F) #maybe i can just do this with true to get groups
+  
+}
 
 # Generate 15 distinct colors
-color_palette <- distinctColorPalette(15) 
+color_palette <- distinctColorPalette(16) 
 
 # Map colors to categories
 category_colors <- setNames(color_palette, unique(agents$strat)) 
@@ -998,23 +1053,31 @@ agents$stratColor <- category_colors[agents$strat]
 ###
 
 
+
+
 #add vertex attributes
-for(r in 1:length(igraph_list)) {
+for(r in 1:length(graph_list)) {
   
-  V(igraph_list[[r]])$name <- c(1:150)
+  V(graph_list[[r]])$name <- c(1:160)
   
-  V(igraph_list[[r]])$association <- agents$association
+  V(graph_list[[r]])$association <- agents$association
   
-  V(igraph_list[[r]])$strat <- agents$strat
+  V(graph_list[[r]])$strat <- agents$strat
   
-  V(igraph_list[[r]])$color <- agents$stratColor
+  V(graph_list[[r]])$color <- agents$stratColor
   
 }
 
+graph_list <- lapply(graph_list, function(g) {
+  V(g)$name <- c(1:160)
+  V(g)$strat <- agents$strat
+  return(g)
+})
 
-plot(lastGraphs[[10]],
+
+plot(graph_list[[300]],
      layout = layout.fruchterman.reingold,
-     #vertex.label = NA,
+     vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
