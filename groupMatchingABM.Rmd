@@ -222,96 +222,79 @@ weighted_jaccard <- function(x, y) {
 
 #output = 4 matrices
 
-overlap_prims <- function(adjMat){
+overlap_prims<- function(adjMat) {
+  popSize <- nrow(adjMat)  
   
   #Make empty matrices to store overlap for each prim
-  
-  allianceMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
-  generalizationMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
-  defenseMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
-  displacementMat <- matrix(data = 0, nrow = popSize, ncol = popSize)
+  allianceMat <- matrix(0, nrow = popSize, ncol = popSize)
+  generalizationMat <- matrix(0, nrow = popSize, ncol = popSize)
+  displacementMat <- matrix(0, nrow = popSize, ncol = popSize)
+  defenseMat <- matrix(0, nrow = popSize, ncol = popSize)
   
   #loop through each agent
-  
-  for(agent in 1:popSize){
+  for (agent in 1:popSize) {
     
-    #Alliance#
-    #calculate correlation of agent's row with other agents' rows 
+    #store agent's row and column
+    agent_row <- adjMat[agent, ]
+    agent_col <- adjMat[, agent]
     
-      alliance = sapply(1:nrow(adjMat), function(i) {
-        
-        #only compute for agents that proceed main agent numerically to prevent a redundant calculation
-        if (i <= agent) 
-          return(NA)
-        
-        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
+    ## Alliance (row-row) ##
+    alliance <- rep(NA_real_, popSize)
+    
+    if (agent < popSize) {
+      for (i in (agent + 1):popSize) {
         exclude_indices <- c(agent, i)
-        x_filtered <- adjMat[i,-exclude_indices]
-        agent_row_filtered <- adjMat[agent,-exclude_indices]
-        
-        #calculate the similarity
-        weighted_jaccard(x_filtered, agent_row_filtered)
-      })
-      
-      #Add agent's score vector to their row in the overlap matrix corresponding to prim
-      allianceMat[agent,] <- alliance
-      
-      
-    #Generalization#
-    #calculate correlation of agent's column with other agents' columns
-      
-      generalization = sapply(1:ncol(adjMat), function(j) {
-        
-        #only compute for agents that proceed main agent numerically to prevent a redundant calculation
-        if (j <= agent)
-          return(NA)
-        
-        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
-        exclude_indices <- c(agent, j)
-        x_filtered <- adjMat[-exclude_indices, j]
-        agent_filtered <- adjMat[-exclude_indices, agent]
-        weighted_jaccard(x_filtered, agent_filtered)
-      })
-      
-      #Add agent's score vector to their row in the overlap matrix corresponding to prim
-      generalizationMat[agent,] <- generalization
+        agent_filtered <- agent_row[-exclude_indices]
+        other_filtered <- adjMat[i, -exclude_indices]
+        alliance[i] <- weighted_jaccard(agent_filtered, other_filtered)
+      }
+    }
+    allianceMat[agent, ] <- alliance
     
-      
-    #Displacement#
-    #calculate correlation of agent's row with other agents' columns
-      
-      displacement = sapply(1:nrow(adjMat), function(j) { #do all not some bc then we'll do inverse for displacement
-        
-        #avoid computing between self
-        if (j == agent)
-          return(NA)
-        
-        #when comparing the two vectors, ignore the two cells belonging to each agent (only third party relationships matter here)
-        exclude_indices <- c(agent, j)
-        x_filtered <- adjMat[-exclude_indices, j]
-        agent_filtered <- adjMat[agent,-exclude_indices]
-        weighted_jaccard(x_filtered, agent_filtered)
-      })
-      
-      #Add agent's score vector to their row in the overlap matrix corresponding to prim
-      displacementMat[agent,] <- displacement
     
+    ## Generalization (col-col) ##
+    generalization <- rep(NA_real_, popSize)
+    
+    if (agent < popSize) {
+      for (j in (agent + 1):popSize) {
+        exclude_indices <- c(agent, j)
+        agent_filtered <- agent_col[-exclude_indices]
+        other_filtered <- adjMat[-exclude_indices, j]
+        generalization[j] <- weighted_jaccard(agent_filtered, other_filtered)
+      }
+    }
+    generalizationMat[agent, ] <- generalization
+    
+    
+    ## Displacement (row-col) ##
+    displacement <- rep(NA_real_, popSize)
+    
+    for (j in 1:popSize) {
+      if (j == agent) next
+      exclude_indices <- c(agent, j)
+      agent_filtered <- agent_row[-exclude_indices]
+      other_filtered <- adjMat[-exclude_indices, j]
+      displacement[j] <- weighted_jaccard(agent_filtered, other_filtered)
+    }
+    
+    displacementMat[agent, ] <- displacement
   }
   
-  #Completing the matrices
+  ## Complete the Matrices ##
   
-  #Transpose the alliance matrix on itself since value for [i,j] = value for [j,i]
+  # Symmetric matrices
   allianceMat[lower.tri(allianceMat)] <- t(allianceMat)[lower.tri(allianceMat)]
-  
-  #Transpose the generalization matrix on itself since value for [i,j] = value for [j,i]
   generalizationMat[lower.tri(generalizationMat)] <- t(generalizationMat)[lower.tri(generalizationMat)]
   
-  #Transpose the displacement matrix to create defense mat since displacement value for [i,j] = defense value for [j,i]
-  
+  # Displacement + transpose = defense
   defenseMat <- t(displacementMat)
   
-  return(list(A = allianceMat, G = generalizationMat, P = displacementMat, D = defenseMat))
-  
+  return(list(
+    A = allianceMat,
+    G = generalizationMat,
+    P = displacementMat,
+    D = defenseMat
+  ))
 }
 
 #Overlap Score Calculation#
