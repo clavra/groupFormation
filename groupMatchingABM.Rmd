@@ -313,16 +313,17 @@ overlap_mean <- function(agent, agentDF, matrixList){
   #get only the prim matrices she will be using
   selectedMats <- matrixList[selectedPrims]
     
-    #get her rows from the prim mats and bind them together
-    row_values <- do.call(rbind, lapply(selectedMats, function(mat)
-        mat[agent,]))
-    
-    #take the element wise average
-    means <- ifelse(is.null(row_values), 1, colMeans(row_values))
-    
-    #return the vector of means, where each element is her overlap score with each other agent
-    return(means)
-    
+  #get her rows from the prim mats and bind them together
+  row_values <- do.call(rbind, lapply(selectedMats, function(mat) mat[agent,, drop = FALSE]))
+  
+  # Take the element-wise average
+  means <- if (is.null(row_values) || nrow(row_values) == 0) {
+    rep(1, ncol(matrixList[[1]]))  # default vector if no prims are selected
+  } else {
+    colMeans(row_values)
+  }
+  
+  return(means)
 }
 
 
@@ -348,7 +349,6 @@ reciprocity <- function(agent, adjMat){
 
 
 #Contributions#
-#
 
 payoff <- function(gameMatrix, agentDF, payoffs){
   
