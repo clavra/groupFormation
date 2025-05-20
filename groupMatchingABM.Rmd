@@ -96,7 +96,7 @@ library(doParallel)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 160
+popSize <- 80
 
 #pursuitRange <- c(1:5)
 
@@ -104,13 +104,14 @@ popSize <- 160
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 250
+reassessments <- 150
 
 #number of loops for the whole model
-modelLoops <- 1
+modelLoops <- 20
 
 #number of generations
-generations <- 1
+generations <- 300
+
 
 #list the four primitives...
 all_primitives <- c("A", "P", "D", "G")
@@ -304,6 +305,12 @@ overlap_mean <- function(agent, agentDF, matrixList){
   
  #for a given agent:
   
+  if(agents$strat[agent] == "XX"){
+    
+    means <- rep(1, popSize)
+    
+  } else {
+  
   #get her binary prim vector from agent DF
   prims <- agentDF[agent, c("A","G","P","D")]
   
@@ -316,12 +323,16 @@ overlap_mean <- function(agent, agentDF, matrixList){
   #get her rows from the prim mats and bind them together
   row_values <- do.call(rbind, lapply(selectedMats, function(mat) mat[agent,, drop = FALSE]))
   
-  # Take the element-wise average
-  means <- if (is.null(row_values) || nrow(row_values) == 0) {
-    rep(1, ncol(matrixList[[1]]))  # default vector if no prims are selected
-  } else {
-    colMeans(row_values)
-  }
+  #take the element-wise average
+  means <- colMeans(row_values)
+  
+  #rescale it to be between 1 and 2, thus it carries weight
+  
+  means <- means - min(means, na.rm = T)
+  means <- means/max(means, na.rm = T)
+  means <- means + 1
+    
+  } 
   
   return(means)
 }
@@ -342,6 +353,8 @@ reciprocity <- function(agent, adjMat){
   
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
+  
+  reciprocity_scores <- reciprocity_scores + 1
   
   return(reciprocity_scores)
   
@@ -406,8 +419,6 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
   #add constant to prob weight to fix strength of selection
   pay <- pay + (1/selStrength) #the bigger the decimal, the larger the diff in probability
   
-  #link payout to corresponding agent
-  
   #generate random offspring
   offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = pay),] #the bigger the decimal, the larger the diff
   
@@ -430,6 +441,9 @@ mutateBabies <- function(agentDF, flipProb) {
     
     #change their association value to be within certain SD of original parent AV
     agentDF$association[a] <- rnorm(1, mean = agentDF$association[a], sd = .10)
+    
+    #don't let association value get above 1
+    ifelse(agentDF$association[a] > 1, 1 - (agentDF$association[a] - 1), agentDF$association[a] > 1)
     
     #then for each of the four strategy columns...
     for (c in 3:ncol(agentDF)) {
@@ -615,6 +629,7 @@ print(endTime - startTime)
 
 #drive_upload(results, path = "groupFormationResults/resultsParallel.csv", overwrite = TRUE)
 
+write.csv(results, "C:/Users/clavra/Downloads/newResults.csv")
 
 
 ```
@@ -800,7 +815,7 @@ print(end.time - start.time)
 
 results_may18 <- results
 
-#write.csv(results_may18, "C:/Users/clavra/Documents/groupFormation/results_may18.csv")
+write.csv(results, "C:/Users/clavra/Documents/groupFormation/results_again.csv")
       
 ```
 
