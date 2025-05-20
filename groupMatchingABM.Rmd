@@ -107,10 +107,10 @@ pursuitAmount <- 3
 reassessments <- 250
 
 #number of loops for the whole model
-modelLoops <- 20
+modelLoops <- 1
 
 #number of generations
-generations <- 300
+generations <- 1
 
 #list the four primitives...
 all_primitives <- c("A", "P", "D", "G")
@@ -398,6 +398,7 @@ payoff <- function(gameMatrix, agentDF, payoffs){
 
 reproduce <- function(agentDF, payoffVector, selStrength, n){
   
+  
   #rescale payoffs to be between 0-1
   pay <- payoffVector - min(payoffVector)
   pay <- pay/max(pay)
@@ -406,7 +407,6 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
   pay <- pay + (1/selStrength) #the bigger the decimal, the larger the diff in probability
   
   #link payout to corresponding agent
-  agentDF$pay <- pay
   
   #generate random offspring
   offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = pay),] #the bigger the decimal, the larger the diff
@@ -432,7 +432,7 @@ mutateBabies <- function(agentDF, flipProb) {
     agentDF$association[a] <- rnorm(1, mean = agentDF$association[a], sd = .10)
     
     #then for each of the four strategy columns...
-    for (c in 4:ncol(agentDF)) {
+    for (c in 3:ncol(agentDF)) {
       
       #see whether or not to flip the value based on a certain probability
       random_flip <- rbinom(1, 1, flipProb)
@@ -442,8 +442,20 @@ mutateBabies <- function(agentDF, flipProb) {
       
     }
     
+    # 
+    # if(sum(agentDF[a, c(3:6)]) == 0){
+    #   
+    #   agentDF$strat[a] <- "XX"
+    #   
+    # } else {
+    #   
+    #   agentDF$strat[a] <- paste(names(agentDF[c(3:6)])[agentDF[a,] == 1],collapse="")
+    #   
+    # } 
+    # 
+    
     #populate the strat column to accurately reflect the strats being used
-    agentDF$strat[a] <- paste(names(agentDF)[agentDF[a,] == 1],collapse="")
+    agentDF$strat[a] <- ifelse(sum(agentDF[a, c(3:6)]) == 0, "XX", paste(names(agentDF)[agentDF[a,] == 1],collapse=""))
     
   }
   
@@ -639,6 +651,8 @@ for(m in 1:modelLoops) {
   #Generate parent agents
   agents <- agentGenerate(popSize)
   
+  agentsOriginal <- agents
+  
   final_tiesMatrices <- list(length = generations)
   
   lastGraphs <- list(length = generations)
@@ -786,7 +800,7 @@ print(end.time - start.time)
 
 results_may18 <- results
 
-write.csv(results_may18, "C:/Users/clavra/Documents/groupFormation/results_may18.csv")
+#write.csv(results_may18, "C:/Users/clavra/Documents/groupFormation/results_may18.csv")
       
 ```
 
@@ -832,7 +846,7 @@ plot(p1)
 results$percentPersist <- (results$intersectLast/results$numEdges)*100
 
 
-lastGraphsFull <- lastGraphs
+tiesM <- lastGraphs
 
 #only include edges that are reciprocated
 for(g in 1:length(lastGraphs)) {
@@ -969,17 +983,21 @@ for (i in 1:nrow(agents)) {
 
 #############
 
-# graph_list <- lapply(tiesMatrix_list, function(mat) {
-#   graph_from_adjacency_matrix(mat, mode = "directed", diag = FALSE)
-# })
-#add vertex attributes
 
-tiesMat_list <- lapply(tiesMat_list, function(mat) {
-  rownames(mat) <- colnames(mat) <- as.character(1:160)
-  mat
-})
 
-igraph_list <- lapply(tiesMat_list, graph_from_adjacency_matrix, add.rownames = T)
+# Generate 16 distinct colors
+color_palette <- distinctColorPalette(16) 
+
+# Map colors to categories
+category_colors <- setNames(color_palette, unique(agents$strat)) 
+
+# Assign colors based on category
+agents$stratColor <- category_colors[agents$strat]
+
+
+tiesMatrix_list <- tiesMatrix_list[-c(1)]
+
+igraph_list <- lapply(tiesMatrix_list, graph_from_adjacency_matrix, add.rownames = T)
   
 #loop through each igraph object
 for (g in 1:length(igraph_list)) {
@@ -999,13 +1017,13 @@ for (g in 1:length(igraph_list)) {
 
 for(r in 1:length(igraph_list)) {
   
-  #V(igraph_list[[r]])$name <- c(1:160)
+  V(igraph_list[[r]])$name <- as.character(c(1:160))
   
   V(igraph_list[[r]])$association <- agents$association[match(V(igraph_list[[r]])$name, rownames(agents))]
   
-   V(graph_list[[r]])$strat <- agents$strat[match(V(igraph_list[[r]])$name, rownames(agents))]
+   V(igraph_list[[r]])$strat <- agents$strat[match(V(igraph_list[[r]])$name, rownames(agents))]
   
-  V(graph_list[[r]])$color <- agents$stratColor[match(V(igraph_list[[r]])$name, rownames(agents))]
+  V(igraph_list[[r]])$color <- agents$stratColor[match(V(igraph_list[[r]])$name, rownames(agents))]
 
   
 }
@@ -1024,14 +1042,6 @@ for(g in 1:length(graph_list)) {
   
 }
 
-# Generate 15 distinct colors
-color_palette <- distinctColorPalette(16) 
-
-# Map colors to categories
-category_colors <- setNames(color_palette, unique(agents$strat)) 
-
-# Assign colors based on category
-agents$stratColor <- category_colors[agents$strat]
 
 ###
 
