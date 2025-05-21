@@ -326,12 +326,11 @@ overlap_mean <- function(agent, agentDF, matrixList){
   #take the element-wise average
   means <- colMeans(row_values)
   
-  #rescale it to be between 1 and 2, thus it carries weight
+  #rescale it to be between 0 and 1, thus it carries weight
   
   means <- means - min(means, na.rm = T)
   means <- means/max(means, na.rm = T)
-  means <- means + 1
-    
+
   } 
   
   return(means)
@@ -353,8 +352,6 @@ reciprocity <- function(agent, adjMat){
   
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
-  
-  reciprocity_scores <- reciprocity_scores + 1
   
   return(reciprocity_scores)
   
@@ -425,7 +422,6 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
   #Reset IDs
   row.names(offspringDF) <- 1:n
   
-  
   return(offspringDF)
   
 }
@@ -456,17 +452,6 @@ mutateBabies <- function(agentDF, flipProb) {
       
     }
     
-    # 
-    # if(sum(agentDF[a, c(3:6)]) == 0){
-    #   
-    #   agentDF$strat[a] <- "XX"
-    #   
-    # } else {
-    #   
-    #   agentDF$strat[a] <- paste(names(agentDF[c(3:6)])[agentDF[a,] == 1],collapse="")
-    #   
-    # } 
-    # 
     
     #populate the strat column to accurately reflect the strats being used
     agentDF$strat[a] <- ifelse(sum(agentDF[a, c(3:6)]) == 0, "XX", paste(names(agentDF)[agentDF[a,] == 1],collapse=""))
