@@ -96,7 +96,7 @@ library(doParallel)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 80
+popSize <- 16
 
 #pursuitRange <- c(1:5)
 
@@ -107,11 +107,13 @@ pursuitAmount <- 3
 reassessments <- 150
 
 #number of loops for the whole model
-modelLoops <- 20
+modelLoops <- 1
 
 #number of generations
-generations <- 300
+generations <- 1
 
+#SD of association value of agents in the eyes of other agents
+AV_SD <- 0.05
 
 #list the four primitives...
 all_primitives <- c("A", "P", "D", "G")
@@ -150,7 +152,7 @@ primies <- data.frame("prim_abbrev" = prim_abbrev,
                       "prim_list" = I(all_combos))
 
 
-primiesSampling <- rep(prim_abbrev, each = 10) #temporary, for 150 agents
+primiesSampling <- rep(prim_abbrev, each = 1) #temporary, for 150 agents
 
 selStrength <- 0.15
 
@@ -197,6 +199,28 @@ agentGenerate <- function(n){
   
 }
 
+
+#initialize matrix
+
+
+makeAssociationMat <- function(agentDF, sd){
+  
+  associationMat <- matrix(, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agentDF)){
+    
+    associationMat[,a] <-  rnorm(popSize, mean = agentDF$association[a], sd = sd)
+    
+  }
+  
+  diag(associationMat) <- NA
+  
+  return(associationMat)
+  
+}
+  
+  
+  
 
 weighted_jaccard <- function(x, y) {
   
@@ -422,6 +446,7 @@ reproduce <- function(agentDF, payoffVector, selStrength, n){
   #Reset IDs
   row.names(offspringDF) <- 1:n
   
+  
   return(offspringDF)
   
 }
@@ -495,6 +520,9 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     
     print(paste("Model",m,"Generation", g)) #for keeping track
     
+    #make association matrix which gives agents slightly different perceptions of each others' AVs
+    associationMat <- matrix(, nrow = popSize, ncol = popSize)
+    
     #generate adjacency matrix (populate with 1)
     pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
     
@@ -530,7 +558,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
         reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
         
         #calculate the association values
-        association_values <- agents$association
+        association_values <- associationMat[a,]
         
         #Combine overlap, reciprocity, and association scores into single calculation
         pursuit_scores <-overlap_scores * reciprocity_scores * association_values
@@ -639,7 +667,7 @@ results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos)*(gene
 # 
 # results <- rbind(results, resultsbind)
 # 
-  results$population[results$generation == 0] <- 10
+  results$population[results$generation == 0] <- 1
 # 
 # names(results)[names(results) == 'amount'] <- 'population'
 
@@ -664,6 +692,9 @@ for(m in 1:modelLoops) {
   while(g <= generations){
     
     print(g) #for keeping track
+    
+    #make association matrix which gives agents slightly different perceptions of each others' AVs
+    associationMat <- matrix(, nrow = popSize, ncol = popSize)
   
     #generate adjacency matrix (populate with 1)
     pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
@@ -688,6 +719,7 @@ for(m in 1:modelLoops) {
       #make empty matrix list
       overlap_matrices <- overlap_prims(pursuitMatrix_list[[t-1]])
       
+    
       
       #for each agent...
       for (a in 1:nrow(agents)) {
@@ -699,7 +731,7 @@ for(m in 1:modelLoops) {
         reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
         
         #calculate the association values
-        association_values <- agents$association
+        association_values <- associationMat[a,]
         
         #Combine overlap, reciprocity, and association scores into single calculation
         pursuit_scores <-overlap_scores * reciprocity_scores * association_values
@@ -729,12 +761,16 @@ for(m in 1:modelLoops) {
       
         #randomly pick one agent to play game
         gamer <- sample(popSize, 1)
+        
+        print(gamer)
       
         #pull indices of agents' reciprocated ties
         gamerGroup <- which(tiesMatrix[gamer, ] == 1)
         
         #add the gamer to the group indices
         gamerGroup <- c(gamerGroup, gamer)
+        
+        print(gamerGroup)
         
         #subset the ties matrix to include only those in group
         gamersMat <- tiesMatrix[gamerGroup, gamerGroup, drop = F]
@@ -775,7 +811,7 @@ for(m in 1:modelLoops) {
     stratTable <- as.data.frame(table(agents$strat))
     
     #add the amounts to the results df
-    results$population[results$generation == g & results$loop == m] <- stratTable$Freq[match(results$combo, stratTable$Var1)]
+    results$population[results$generation == g & results$loop == m] <- stratTable$Freq[match(prim_abbrev, stratTable$Var1)]
       
     print(stratTable)
     
