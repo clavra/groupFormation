@@ -28,16 +28,16 @@ They will also have a number of pursuits they can make per regrouping period.
 
 #### Gather info
 
-Each agent will calculate three scores with respect to other agents: alliance value, reciprocity score, and overlap score.
+Each agent will calculate three scores with respect to other agents: association value, reciprocity score, and overlap score.
 
-The alliance value is calculated by taking the euclidean distance of the agent's preferences with the other agents' traits. 
+The association value is calculated by taking the euclidean distance of the agent's preferences with the other agents' traits. 
 
 The reciprocity score is the proportion of pursuits between the agent and each other agent that are reciprocated.
 
 The overlap score is a measurement of pursuit similarity (both sent and received) between the agent and each other agent, with respect to third parties.
   It is based on David Pietraszewski's triadic primitives, whereby:
    
-     alliance is the correlation between the agent and each other agents' sent pursuits (i.e., how much they pursue the same agents)
+     association is the correlation between the agent and each other agents' sent pursuits (i.e., how much they pursue the same agents)
      
      generalization is the correlation between the agent and each other agents' received pursuits (i.e., how much they are pursued by the same agents)
      
@@ -48,7 +48,7 @@ The overlap score is a measurement of pursuit similarity (both sent and received
   
 These three scores are then formulated to produce a single pursuit score:
 
-  pursuit value = alliance value + (reciprocity score + overlap score)
+  pursuit value = association value + (reciprocity score + overlap score)
 
 
 #### Pursue agents
@@ -143,6 +143,7 @@ primies <- as.data.frame(prim_abbrev)
 
 #conditions to test
 
+AV_SD <- 0.05
 
 
 ```
@@ -158,21 +159,37 @@ agentGenerate <- function(n){
   
   #randomly generate 3 traits and their corresponding preferences for each agent
 
-  alliance <- abs(rnorm(popSize, mean = 50, sd = 10))
+  association <- abs(rnorm(popSize, mean = 50, sd = 10))
   
-  alliance <- round(alliance, digits = 0)
+  association <- round(association, digits = 0)
   
-  alliance <- (alliance/100)
+  association <- (association/100)
   
   pursuit_amount <- sample(2:5, n, replace = T)
   
   #put it all together in a df
-  agents <- data.frame(alliance, pursuit_amount)
+  agents <- data.frame(association, pursuit_amount)
   
   return(agents)
   
 }
 
+makeAssociationMat <- function(agentDF, sd){
+  
+  associationMat <- matrix(, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agentDF)){
+    
+    associationMat[,a] <-  rnorm(popSize, mean = agentDF$association[a], sd = sd)
+    
+  }
+  
+  diag(associationMat) <- NA
+  
+  return(associationMat)
+  
+}
+  
 
 weighted_jaccard <- function(x, y) {
   
@@ -291,7 +308,7 @@ results <- data.frame("loop" = rep(1:modelLoops, each = length(all_combos) * rea
                       "num_isolates" = NA,
                       "num_groups" = NA,
                       "num_four" = NA,
-                      "assort_alliance" = NA)
+                      "assort_association" = NA)
 
 lastGraphs <- c()
 
@@ -303,8 +320,13 @@ for(m in 1:modelLoops) {
   #Generate agents
   agents <- agentGenerate(popSize)
   
+  #make association matrix which gives agents slightly different perceptions of each others' AVs
+  associationMat <- makeAssociationMat(agents, AV_SD)
+  
   #run for all possible primitive combos
   for (c in 1:length(all_combos)) {
+    
+    print(c)
     
     #get the primitives that correspond to that combo
     primitives <- all_combos[[c]]
@@ -317,6 +339,8 @@ for(m in 1:modelLoops) {
     
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
     noncumMat_list <- list(adjMat)
+    
+    friendsMat_list <- list()
     
     
     #for each reassessment... (agents look backwards so start from 2)
@@ -364,11 +388,11 @@ for(m in 1:modelLoops) {
         #calculate the reciprocity scores between themselves and the other agents
         reciprocity_scores <- reciprocity(a, matrix_list[[t - 1]])
         
-        #calculate the alliance values between their prefs and the other agents' traits
-        alliance_values <- agents$alliance
+        #calculate the association values between their prefs and the other agents' traits
+        association_values <- associationMat[a,]
         
-        #Combine overlap, reciprocity, and alliance scores into single calculation
-        pursuit_scores <- overlap_scores * reciprocity_scores * alliance_values
+        #Combine overlap, reciprocity, and association scores into single calculation
+        pursuit_scores <- overlap_scores * reciprocity_scores * association_values
         
         #Randomize number of pursuits for the agent
         pursuitAmount <- pursuitAmount
@@ -383,6 +407,7 @@ for(m in 1:modelLoops) {
         noncumMat[a, pursuit_indices] <- 1
         
         
+        
       }
       
       #add the adjMat to the matrix list
@@ -391,21 +416,27 @@ for(m in 1:modelLoops) {
       #add the non cumulative matrix to its list
       noncumMat_list[[t]] <- noncumMat
       
+      #make matrix that has only reciprocated ties
+      friendsMatrix <- noncumMat * t(noncumMat)
+      
+      friendsMat_list[[t]] <- friendsMat_list
+      
+      
     }
     
     
     igraph_list <-
-      lapply(noncumMat_list,
+      lapply(friendsMat_list,
              graph_from_adjacency_matrix,
-             add.rownames = T)
+             directed = F)
     
-    #loop through each igraph object
-    for (g in 1:length(igraph_list)) {
-      
-      #only include edges that are reciprocated
-      igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                         E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                         delete.vertices = F) #maybe i can just do this with true to get groups
+    # #loop through each igraph object
+    # for (g in 1:length(igraph_list)) {
+    #   
+    #   #only include edges that are reciprocated
+    #   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
+    #                                      E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+    #                                      delete.vertices = F) #maybe i can just do this with true to get groups
       
       #get total number of edges
       numEdges <- length(E(igraph_list[[g]]))
@@ -425,7 +456,7 @@ for(m in 1:modelLoops) {
       
       V(igraph_list[[g]])$name <- c(1:100)
       
-      V(igraph_list[[g]])$alliance <- agents$alliance[match(V(igraph_list[[g]])$name, rownames(agents))]
+      V(igraph_list[[g]])$association <- agents$association[match(V(igraph_list[[g]])$name, rownames(agents))]
       
       #add number of reciprocal edges to results df
       results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
@@ -433,7 +464,7 @@ for(m in 1:modelLoops) {
       results$num_groups[results$reassess == g & results$combo == c & results$loop == m] <- num_groups
       results$num_isolates[results$reassess == g & results$combo == c & results$loop == m] <- num_isolates
       results$num_four[results$reassess == g & results$combo == c & results$loop == m] <- num_four
-      results$assort_alliance[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$alliance)
+      results$assort_association[results$reassess == g & results$combo == c & results$loop == m] <- assortativity(igraph_list[[g]], V(igraph_list[[g]])$association)
       
       
     }
@@ -445,7 +476,7 @@ for(m in 1:modelLoops) {
     
     
   }
-}
+
 
 results$numEdges[results$reassess == 1] <- 0
 results$intersectLast[results$reassess == 2] <- 0
@@ -480,22 +511,23 @@ results$percentPersist <- (results$intersectLast/results$numEdges)*100
 #Edge Amount Plot#
 #plot the number of reciprocated edges throughout reassessment periods [average this across loops w SE]
 
-persist_plot <- ggplot(data = results,
+edges_plot <- ggplot(data = results,
        aes(x = reassess,
            y = numEdges,
-           color = as.factor(loop),
-           groups = as.factor(loop)
+           #color = as.factor(loop),
+           #groups = as.factor(loop)
        )) +
   facet_wrap(~prims) +
-  labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
+  labs(title = "Number of Edges",
        subtitle = "last 100 reassessments across model loops for each primitive combo",
        x = "reassessment period",
-       y = "percent persist",
-       color = "loop") +
+       y = "percent persist"
+       #color = "loop") 
+       )+
   geom_smooth(se = F) +
   geom_hline(yintercept = 300, linetype = "dashed")
 
-print(persist_plot)
+print(edges_plot)
 
 
 
@@ -504,15 +536,16 @@ print(persist_plot)
 persist_plot <- ggplot(data = results,
        aes(x = reassess,
            y = percentPersist,
-           color = as.factor(loop),
-           groups = as.factor(loop)
+           #color = as.factor(loop),
+           #groups = as.factor(loop)
        )) +
   facet_wrap(~prims) +
   labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
        subtitle = "last 100 reassessments across model loops for each primitive combo",
        x = "reassessment period",
-       y = "percent persist",
-       color = "loop") +
+       y = "percent persist"
+       #color = "loop"
+       ) +
   geom_smooth(se = F) +
   geom_hline(yintercept = 100, linetype = "dashed")
 
@@ -523,9 +556,9 @@ print(persist_plot)
 #Ranks
 
 #subset results df to only tail entries (after model converges)
-resultsTail <- results[results$reassess > reassessments - 100,]
+resultsTail <- results[results$reassess > 200,]
 
-#calculate mean edge persistence, alliance val assortativity, and number of isolates 
+#calculate mean edge persistence, association val assortativity, and number of isolates 
 
 edgesTail <- resultsTail %>%
   group_by(prims) %>%
@@ -546,8 +579,8 @@ persistTail <- resultsTail %>%
 assortTail <- resultsTail %>%
   group_by(prims) %>%
   summarize(
-    meanAssort = mean(assort_alliance, na.rm = TRUE),
-    sdAssort = sd(assort_alliance, na.rm = TRUE),
+    meanAssort = mean(assort_association, na.rm = TRUE),
+    sdAssort = sd(assort_association, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -560,6 +593,9 @@ isolatesTail <- resultsTail %>%
   )
 
 
+resultsLast <- results[results$reassess == 300,]
+
+
 
 
 
@@ -568,13 +604,104 @@ for(r in 1:length(igraph_list)) {
   
   V(igraph_list[[r]])$name <- c(1:100)
   
-  V(igraph_list[[r]])$alliance <- agents$alliance[match(V(igraph_list[[r]])$name, rownames(agents))]
+  V(igraph_list[[r]])$color <- agents$color[match(V(igraph_list[[r]])$name, rownames(agents))]
   
   #V(igraph_list[[r]])$pursuitAmount <- agents$pursuit_amount[match(V(igraph_list[[r]])$name, rownames(agents))]
 
   
 }
 
+V(lastGraphs[[15]])$color <- agents$color[match(V(lastGraphs[[15]])$name, rownames(agents))]
+
+
+#create vector of unique association values in order 
+associationVals <- sort(unique(agents$association))
+
+#create color ramp palette
+cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(associationVals)), associationVals)
+
+# initialize color vector
+vertColors <- rep(NA, popSize)
+
+# assign colors based on association values
+for (i in 1:nrow(agents)) {
+  
+  a <- agents$association[i]
+  
+  agents$color[i] <- cols[as.character(a)]
+}
+
+
+
+plot(lastGraphs[[16]],
+     layout = layout.fruchterman.reingold,
+     vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.size = 0.3)
+
+
+summary_df <- resultsTail %>%
+  group_by(prims) %>%
+   summarize(
+    Mean_Persistence = mean(percentPersist, na.rm = TRUE),
+    Mean_Similarity = mean(assort_association, na.rm = TRUE),
+    Total_Isolates = sum(num_isolates, na.rm = T),
+    Mean_four = mean(num_four, na.rm = T),
+    .groups = "drop"
+  )
+
+
+meanPers<- ggplot(summary_df, aes(x = prims, y = Mean_Persistence, color = prims)) +
+  geom_point(size = 5) +
+  geom_segment(aes(xend = prims, y = 0, yend = Mean_Persistence), color = "grey70", linewidth = 0.5) +
+  geom_text(aes(label = round(Mean_Persistence, 1)), vjust = -1, size = 3.5) +
+  labs(
+    title = "Percent of Ties that Persist from Previous Round",
+    subtitle = "for final 100 regrouping periods",
+    y = "percent of edges",
+    x = NULL
+  ) +
+  theme_bw() +
+  theme(legend.position = "right")
+
+
+
+meanIso <- ggplot(summary_df, aes(x = prims, y = Total_Isolates, color = prims)) +
+  geom_point(size = 5) +
+  geom_segment(aes(xend = prims, y = 0, yend = Total_Isolates), color = "grey70", linewidth = 0.5) +
+  geom_text(aes(label = Total_Isolates), vjust = -1, size = 3.5) +
+  labs(
+    title = "Number of Isolates in Last Reassessment Period",
+    y = "number of isolates",
+    x = NULL
+  ) +
+  theme_bw() +  theme(legend.position = "right")
+
+
+meanFour <- ggplot(summary_df, aes(x = prims, y = Mean_four, color = prims)) +
+  geom_point(size = 5) +
+  geom_segment(aes(xend = prims, y = 0, yend = Mean_four), color = "grey70", linewidth = 0.5) +
+  geom_text(aes(label = Mean_four), vjust = -1, size = 3.5) +
+  labs(
+    title = "Average Number of Groups of 4",
+    subtitle = "within final 100 regrouping periods",
+    y = "number of isolates",
+    x = NULL
+  ) +
+  theme_bw() +  theme(legend.position = "right")
+
+
+
+
+
+ggsave(plot = meanFour, filename = "meanFour.png", dpi = 300)
+
+cliques(lastGraphs[[16]], min = 3, max = 10)
 
 
 ```
