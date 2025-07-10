@@ -348,7 +348,9 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
     
   }
   
-  contributionTot <- contributionTot * 1.2
+  multiplier <- length(gamers)/10 + 1
+  
+  contributionTot <- contributionTot * multiplier
   
   #divide the pooled contributions by the number of agents in the group
   basePay <- contributionTot/nrow(gameMatrix)
