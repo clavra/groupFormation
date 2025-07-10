@@ -340,7 +340,7 @@ for(m in 1:modelLoops) {
     #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
     noncumMat_list <- list(adjMat)
     
-    friendsMat_list <- list()
+    friendsMat_list <- list(adjMat)
     
     
     #for each reassessment... (agents look backwards so start from 2)
@@ -418,25 +418,34 @@ for(m in 1:modelLoops) {
       
       #make matrix that has only reciprocated ties
       friendsMatrix <- noncumMat * t(noncumMat)
-      
-      friendsMat_list[[t]] <- friendsMat_list
-      
+
+      friendsMat_list[[t]] <- friendsMatrix
+
       
     }
     
     
+
     igraph_list <-
       lapply(friendsMat_list,
              graph_from_adjacency_matrix,
-             directed = F)
+             mode = "undirected")
+
     
-    # #loop through each igraph object
-    # for (g in 1:length(igraph_list)) {
-    #   
-    #   #only include edges that are reciprocated
-    #   igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-    #                                      E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-    #                                      delete.vertices = F) #maybe i can just do this with true to get groups
+
+    
+    #loop through each igraph object
+    for (g in 1:length(igraph_list)) {
+
+      #only include edges that are reciprocated
+      igraph_list[[g]] <- subgraph_from_edges(igraph_list[[g]],
+                                         E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
+                                         delete.vertices = F) #maybe i can just do this with true to get groups
+
+      V(igraph_list[[g]])$name <- c(1:100)
+      
+      V(igraph_list[[g]])$association <- agents$association[match(V(igraph_list[[g]])$name, rownames(agents))]
+      
       
       #get total number of edges
       numEdges <- length(E(igraph_list[[g]]))
@@ -454,9 +463,7 @@ for(m in 1:modelLoops) {
       #get number of closed groups of 4
       num_four <-length(max_cliques(igraph_list[[g]], min = 4, max = 4))
       
-      V(igraph_list[[g]])$name <- c(1:100)
-      
-      V(igraph_list[[g]])$association <- agents$association[match(V(igraph_list[[g]])$name, rownames(agents))]
+   
       
       #add number of reciprocal edges to results df
       results$numEdges[results$reassess == g & results$combo == c & results$loop == m] <- numEdges
@@ -470,7 +477,7 @@ for(m in 1:modelLoops) {
     }
     
     
-    lastGraphs[[c]] <- igraph_list[[reassessments]]
+#    lastGraphs[[c]] <- igraph_list[[reassessments]]
     
     print(c)
     
@@ -485,12 +492,13 @@ results$num_isolates[results$reassess == 1] <- 100
 results$prims <- primies$prim_abbrev[match(results$combo, rownames(primies))]
 
 
-
+}
 
 
 end.time <- Sys.time()
 
 print(end.time - start.time)
+
 
 
 ```
