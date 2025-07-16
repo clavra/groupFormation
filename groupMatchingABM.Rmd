@@ -108,16 +108,22 @@ reassessments <- 200
 modelLoops <- 1
 
 #number of generations
-generations <- 5
+generations <- 1
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 prim_abbrev <- c("XX","OV")
 
-primiesSampling <- rep(prim_abbrev, each = 50) #temporary, for 100 agents
+ovs <- rep("OV", 75)
 
-selStrength <- 0.20
+xxs <- rep("XX", 25)
+
+primiesSampling <- c(xxs,ovs)
+
+#primiesSampling <- rep(prim_abbrev, each = 50) #temporary, for 100 agents
+
+selStrength <- 0.40
 
 flipProb <- 0.05
 
@@ -348,7 +354,7 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
     
   }
   
-  multiplier <- length(gamers)/10 + 1
+  multiplier <- 1.2
   
   contributionTot <- contributionTot * multiplier
   
@@ -426,6 +432,11 @@ mutateBabies <- function(agentDF, flipProb) {
   return(agentDF)
   
 }
+
+
+
+
+
 
 ```
 
@@ -527,8 +538,10 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       
       #make matrix that has only reciprocated ties
       friendsMatrix <- tiesMatrix * t(tiesMatrix)
-      
+    }
     #Game#
+      
+      for(i in 1:reassessments){
       
       #randomly pick one agent to play game
       gamer <- sample(popSize, 1)
@@ -610,13 +623,13 @@ results <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations+1)),
 # 
 results$population[results$generation == 0] <- 50
 # 
-resultsBind <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations+1)),
-                      "generation" = rep(0:generations, each = 2),
-                      "combo" = rep(prim_abbrev),
-                      "population" = NA)
+# resultsBind <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations+1)),
+#                       "generation" = rep(0:generations, each = 2),
+#                       "combo" = rep(prim_abbrev),
+#                       "population" = NA)
 
 
-results <- rbind(results, resultsBind)
+#results <- rbind(results, resultsBind)
 
 
 for(m in 1:modelLoops) {
@@ -661,11 +674,9 @@ for(m in 1:modelLoops) {
     
       #Calculate overlap in previous adjacency matrix#
       
-      #make empty matrix list
       overlapMat <- overlap(pursuitMatrix_list[[t-1]])
       
     
-      
       #for each agent...
       for (a in 1:nrow(agents)) {
         
@@ -708,40 +719,40 @@ for(m in 1:modelLoops) {
       
       #make matrix that has only reciprocated ties
       friendsMatrix <- tiesMatrix * t(tiesMatrix)
-      
+    }
+    
       #Game#
       
-      #create empty payoff vector to store payoffs (later used for reproduction)
-      #payoffs <- vector(mode = "numeric", length = popSize)
+    for(i in 1:reassessments) {
       
-        #randomly pick one agent to play game
-        gamer <- sample(popSize, 1)
-        
-        #pull indices of agents' reciprocated ties
-        gamerGroup <- which(friendsMatrix[gamer, ] == 1)
-        
-        #add the gamer to the group indices
-        gamerGroup <- c(gamerGroup, gamer)
-        
-        #subset the ties matrix to include only those in group
-        gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
-        
-        #change the names back to original indices
-        rownames(gamersMat) <- gamerGroup
-        colnames(gamersMat) <- gamerGroup
-        
-        #calculate the payoff each agent will receive
-        payoffs <- payoff(gamersMat, gamerGroup, agents, payoffs)
-        
-        payoff_list[[t]] <- payoffs
+      #randomly pick one agent to play game
+      gamer <- sample(popSize, 1)
+      
+      #pull indices of agents' reciprocated ties
+      gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+      
+      #add the gamer to the group indices
+      gamerGroup <- c(gamerGroup, gamer)
+      
+      #subset the ties matrix to include only those in group
+      gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+      
+      #change the names back to original indices
+      rownames(gamersMat) <- gamerGroup
+      colnames(gamersMat) <- gamerGroup
+      
+      #calculate the payoff each agent will receive
+      payoffs <- payoff(gamersMat, gamerGroup, agents, payoffs)
+      
+      #payoff_list[[t]] <- payoffs
       
     }
     
-  
+    
       
     #Reproduce#
     
-    igraph <- graph_from_adjacency_matrix(tiesMatrix)
+    igraph <- graph_from_adjacency_matrix(friendsMatrix)
    
     V(igraph)$association <- agents$association
   
@@ -854,7 +865,16 @@ E(lastGraphs[[76]])
 
 #check the strats of those with recip ties
 
-plot(lastGraphsFull[[300]],
+lastGraph <- lastGraphs[[1]]
+
+for(i in 1:length(V(lastGraph))){
+  
+  V(lastGraph)$color[i] <- ifelse(V(lastGraph)$strat[i] == "OV", "blue","red")
+  
+}
+
+
+plot(lastGraph,
      layout = layout.fruchterman.reingold,
      #vertex.label = NA,
      #  rescale = F,
