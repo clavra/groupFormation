@@ -108,22 +108,22 @@ reassessments <- 200
 modelLoops <- 1
 
 #number of generations
-generations <- 1
+generations <- 5
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 prim_abbrev <- c("XX","OV")
 
-ovs <- rep("OV", 75)
+ovs <- rep("OV", 50)
 
-xxs <- rep("XX", 25)
+xxs <- rep("XX", 50)
 
 primiesSampling <- c(xxs,ovs)
 
 #primiesSampling <- rep(prim_abbrev, each = 50) #temporary, for 100 agents
 
-selStrength <- 0.40
+selStrength <- 0.95
 
 flipProb <- 0.05
 
@@ -155,7 +155,7 @@ agentGenerate <- function(n){
   strat <- sample(primiesSampling, n, replace = F)
   
   #put it all together in a df
-  agents <- data.frame(association, strat)
+  agents <- data.frame(association, strat, payoff)
   
   for(a in 1:nrow(agents)){
   
@@ -330,7 +330,7 @@ reciprocity <- function(agent, adjMat){
 
 #Contributions#
 
-payoff <- function(gameMatrix, gamers, agentDF, payoffs){
+payoff <- function(gameMatrix, gamers, agentDF){
   
   #start the sum
   contributionTot <- 0
@@ -366,7 +366,7 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
   agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
   
   #return the payoff vector
-  return(payoffs)
+  return(agentDF)
   
 }
 
@@ -376,21 +376,24 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
 #Reproduce#
 #agents reproduce using roulette wheel selection, higher payoff = better reproductive success
 
-reproduce <- function(agentDF, payoffVector, selStrength, n){
+reproduce <- function(agentDF, selStrength, n){
   
   
   #rescale payoffs to be between 0-1
-  pay <- payoffVector - min(payoffVector)
-  pay <- pay/max(pay)
+  agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
+  agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
   
   #add constant to prob weight to fix strength of selection
-  pay <- pay + (1/selStrength) #the bigger the decimal, the larger the diff in probability
+  agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
   
   #generate random offspring
-  offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = pay),] #the bigger the decimal, the larger the diff
+  offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = agentDF$payoff),] #the bigger the decimal, the larger the diff
   
   #Reset IDs
   row.names(offspringDF) <- 1:n
+  
+  #Reset payoff vec
+  offspringDF$payoff <- 0
   
 
   return(offspringDF)
@@ -563,18 +566,10 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       colnames(gamersMat) <- gamerGroup
       
       #calculate the payoff each agent will receive
-      payoffs <- payoff(gamersMat, gamerGroup, agents, payoffs)
+      agents <- payoff(gamersMat, gamerGroup, agents)
       
     }
     
-    #Reproduce#
-    #agents reproduce
-    agents <- reproduce(agents, payoffs, selStrength, popSize)
-    
-    #mutate the association value and strategies of the offspring
-    agents <- mutateBabies(agents, flipProb)
-    
-
     #get the breakdown of strat population
     stratTable <- as.data.frame(table(agents$strat))
     stratTable$loop <- m
@@ -585,6 +580,17 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     if (max(stratTable$Freq, na.rm = T) == popSize) {
       break  # Exit the loop early if condition is met
     }
+    
+    
+    #Reproduce#
+    #agents reproduce
+    agents <- reproduce(agents, selStrength, popSize)
+    
+    #mutate the association value and strategies of the offspring
+    agents <- mutateBabies(agents, flipProb)
+    
+
+   
     
     g <- g+1
     
@@ -616,10 +622,12 @@ write.csv(results, "C:/Users/clavra/Downloads/newResults.csv")
 
 start.time <- Sys.time()
 
-results <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations+1)),
-                      "generation" = rep(0:generations, each = 2),
+results <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations)),
+                      "generation" = rep(1:generations, each = 2),
                       "combo" = rep(prim_abbrev),
-                      "population" = NA)
+                      "population" = NA,
+                      "avgAssoc" = NA,
+                      "avgPay" = NA)
 
 
 # 
@@ -744,51 +752,58 @@ for(m in 1:modelLoops) {
       colnames(gamersMat) <- gamerGroup
       
       #calculate the payoff each agent will receive
-      payoffs <- payoff(gamersMat, gamerGroup, agents, payoffs)
+      agents <- payoff(gamersMat, gamerGroup, agents)
       
       #payoff_list[[t]] <- payoffs
       
     }
     
+    # igraph <- graph_from_adjacency_matrix(friendsMatrix)
+    # 
+    # V(igraph)$association <- agents$association
+    # 
+    # V(igraph)$strat <- agents$strat
+    # 
+    # V(igraph)$name <- 1:popSize
+    # 
+    # V(igraph)$payoff <- payoffs
+    # 
+    # lastGraphs[[g]] <- igraph  
     
-      
-    #Reproduce#
-    
-    igraph <- graph_from_adjacency_matrix(friendsMatrix)
-   
-    V(igraph)$association <- agents$association
-  
-    V(igraph)$strat <- agents$strat
-    
-    V(igraph)$name <- 1:popSize
-    
-    V(igraph)$payoff <- payoffs
-  
-    lastGraphs[[g]] <- igraph
-    
-    
-    #agents reproduce
-    agents <- reproduce(agents, payoffs, selStrength, popSize)
-    
-    #mutate the association value and strategies of the offspring
-    agents <- mutateBabies(agents, flipProb)
-    
-    #add the ties matrix to the list
-    final_tiesMatrices[[g]] <- tiesMatrix
     
     #get the breakdown of strat population
     stratTable <- as.data.frame(table(agents$strat))
     
     print(stratTable)
     
-    #add the amounts to the results df
+    #add the populations to the results df
     results$population[results$generation == g & results$loop == m] <- stratTable$Freq[match(prim_abbrev, stratTable$Var1)]
       
-    print(stratTable)
+    #add the average association value of each strat to the results df
+    results$avgAssoc[results$generation == g & results$loop == m & results$combo == "OV"] <- mean(agents$association[agents$strat == "OV"])
+    results$avgAssoc[results$generation == g & results$loop == m & results$combo == "XX"] <- mean(agents$association[agents$strat == "XX"])
+
+    #add the average payoff of each strat to the results df
+    results$avgPay[results$generation == g & results$loop == m & results$combo == "OV"] <- mean(agents$payoff[agents$strat == "OV"])
+    results$avgPay[results$generation == g & results$loop == m & results$combo == "XX"] <- mean(agents$payoff[agents$strat == "XX"])
+    
     
     if (max(results$population, na.rm = T) == popSize) {
       break  # Exit the loop early if condition is met
     }
+    
+    
+    
+    #Reproduce#
+    
+    #agents reproduce
+    agents <- reproduce(agents, selStrength, popSize)
+    
+    #mutate the association value and strategies of the offspring
+    agents <- mutateBabies(agents, flipProb)
+    
+    #add the ties matrix to the list
+    final_tiesMatrices[[g]] <- tiesMatrix
     
     g <- g+1
     
