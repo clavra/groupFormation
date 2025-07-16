@@ -148,6 +148,8 @@ agentGenerate <- function(n){
   
   association <- (association/100)
   
+  payoff <- 0
+  
   #ID <- 1:n
   
   strat <- sample(primiesSampling, n, replace = F)
@@ -350,7 +352,7 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
     contributionTot <- contributionTot + contribution
     
     #add their noncontributed pay to their corresponding slot in payoff vector (what they keep)
-    payoffs[as.numeric(agent)] <- payoffs[as.numeric(agent)] + (maxContribution - contribution)
+    agentDF$payoff[as.numeric(agent)] <- agentDF$payoff[as.numeric(agent)] + (maxContribution - contribution)
     
   }
   
@@ -361,7 +363,7 @@ payoff <- function(gameMatrix, gamers, agentDF, payoffs){
   #divide the pooled contributions by the number of agents in the group
   basePay <- contributionTot/nrow(gameMatrix)
   
-  payoffs[as.numeric(gamers)] <- payoffs[as.numeric(gamers)] + basePay
+  agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
   
   #return the payoff vector
   return(payoffs)
@@ -539,6 +541,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       #make matrix that has only reciprocated ties
       friendsMatrix <- tiesMatrix * t(tiesMatrix)
     }
+    
     #Game#
       
       for(i in 1:reassessments){
@@ -562,7 +565,6 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       #calculate the payoff each agent will receive
       payoffs <- payoff(gamersMat, gamerGroup, agents, payoffs)
       
-    
     }
     
     #Reproduce#
