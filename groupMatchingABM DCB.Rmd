@@ -1,4 +1,4 @@
----
+,AZ---
 title: "groupFormation"
 author: "Clara Lavrador"
 date: "`r Sys.Date()`"
@@ -102,34 +102,36 @@ popSize <- 100
 pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 200
+reassessments <- 50
 
 #number of loops for the whole model
-modelLoops <- 1
+modelLoops <- 2
 
 #number of generations
-generations <- 20
+generations <- 5
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 prim_abbrev <- c("XX","OV")
 
-ovs <- rep("OV", 50)
+#number of overlap population agents
+numOV <- 50
 
-xxs <- rep("XX", 50)
+#number of null strat agents
+numXX <- popSize - numOV
+  
+#selection strength (higher = stronger)
+selStrength <- 9
 
-primiesSampling <- c(xxs,ovs)
-
-#primiesSampling <- rep(prim_abbrev, each = 50) #temporary, for 100 agents
-
-selStrength <- 5
-
+#probability of mutation
 flipProb <- 0.05
 
-null_scores <- rep (1, popSize)
-
+#how much the groups' collective AV bucket is amplified before being redistributed
 multiplier <- 1.2
+
+#path to save results file
+myPath <- "G:/My Drive/groupFormationResults/delete.csv"
 
 ```
 
@@ -437,6 +439,29 @@ reproduce <- function(agentDF, selStrength, n, flipProb){
 
 ```{r lifeCycle}
 
+#make results df
+results <- data.frame("loop" = rep(1:modelLoops, each = 2*(generations + 1)),
+                      "generation" = rep(0:generations, each = 2),
+                      "combo" = rep(prim_abbrev),
+                      "population" = NA)
+
+#the original population (gen 0) gets put in the df
+results$population[results$generation == 0 & results$combo == "OV"] <- numOV
+results$population[results$generation == 0 & results$combo == "XX"] <- numXX
+
+
+#make the list of OVs and XXs to sample from when creating agents
+ovs <- rep("OV", numOV)
+xxs <- rep("XX", numXX)
+primiesSampling <- c(xxs,ovs)
+
+#placeholder for the null strat's overlap value
+null_scores <- rep (1, popSize)
+
+
+
+#Start of life cycle#
+
 for(m in 1:modelLoops) {
   
   #Generate parent agents
@@ -554,6 +579,8 @@ for(m in 1:modelLoops) {
     #get the breakdown of strat population
     stratTable <- as.data.frame(table(agents$strat))
     
+    results$population[results$generation == g & results$loop == m] <- stratTable$Freq[match(prim_abbrev, stratTable$Var1)]
+    
     print(stratTable)
     
     g <- g+1
@@ -561,5 +588,33 @@ for(m in 1:modelLoops) {
   }
   
 }
-      
+   
+
+write.csv(results, myPath)
+  
+#remove the null pop
+resultsOV <- results[results$combo == "OV",]
+   
 ```
+
+#Analysis#
+```{r analysis}
+
+#Overlap pop over time, per loop#
+p1 <- ggplot(data = resultsOV,
+               aes(x = generation,
+                   y = population,
+                   color = as.factor(loop))) +
+  labs(x = "Generation",
+       y = "Population",
+       color = "loop") +
+  geom_line() +
+  xlim(min(resultsOV$generation), max(resultsOV$generation) + 0.5) +  
+  ylim(0,100) +
+  theme_minimal()
+
+plot(p1)
+
+
+```
+
