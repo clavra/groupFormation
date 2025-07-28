@@ -32,16 +32,16 @@ library(doParallel)
 popSize <- 100
 
 #number of pursuits each agent will have for each reassessment period
-pursuitAmount <- 3
+#pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 50
+reassessments <- 100
 
 #number of loops for the whole model
-modelLoops <- 5
+modelLoops <- 20
 
 #number of generations
-generations <- 5
+generations <- 20
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
@@ -55,16 +55,16 @@ numOV <- 50
 numXX <- popSize - numOV
   
 #selection strength (higher = stronger)
-selStrength <- 9
+selStrength <- 3
 
 #probability of mutation
-flipProb <- 0.05
+flipProb <- 0.01
 
 #how much the groups' collective AV bucket is amplified before being redistributed
 multiplier <- 1.2
 
 #the group size required in order to play the game
-sizeReq <- 4
+#sizeReq <- 4
 
 #path to save results file
 myPath <- "G:/My Drive/groupFormationResults/delete.csv"
@@ -73,9 +73,13 @@ myPath <- "G:/My Drive/groupFormationResults/delete.csv"
 
 
 # parameterDF <- data.frame("pursuitAmount" = c(4,4,6,6,8,8),
-#                           "sizeReq" = (4,3,6,4,8,4),
-#                           )
+#                           "sizeReq" = c(4,3,6,4,8,4)
+#                          )
 
+parameterDF <- data.frame("pursuitAmount" = c(3,3,5,5,7,7),
+                          "sizeReq" = c(4,3,6,4,8,4),
+                          ""
+                         )
 
 ```
 
@@ -396,153 +400,176 @@ null_scores <- rep (1, popSize)
 #make the starting agent DFs
 agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
 
-results <- data.frame()
+
+# resultsDF <- data.frame("loop" = rep(1:modelLoops, each = (generations + 1)*nrow(parameterDF)),
+#                       "parameterInd" = rep(1:nrow(parameterDF), each = generations + 1),
+#                       "generation" = rep(0:generations),
+#                       "population" = NA)
+
+
 
 numCores <- detectCores()
-cl <- makeCluster(5)
+
+cl <- makeCluster(2)
 
 registerDoParallel(cl)
-
-
-
 
 
 #Start of life cycle#
 
 results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   
+  
+  resultsDF <- data.frame("loop" = rep(m),
+                      "parameterInd" = rep(1:nrow(parameterDF), each = generations + 1),
+                      "generation" = rep(0:generations),
+                      "population" = NA)
+  
+  
+  
   #Generate parent agents
   agents <- agentDFs[[m]]
   
-  g <- 1
+  #each set of starting agents will be run using different parameters
   
-  generation_results <- list()
-  
-  while (g <= generations) {
+  for (p in 1:nrow(parameterDF)) {
     
-    print(g) #for keeping track
+    #Parameters
     
-    #make association matrix which gives agents slightly different perceptions of each others' AVs
-    associationMat <- makeAssociationMat(agents, AV_SD)
+    sizeReq <- parameterDF[p, "sizeReq"]
+    pursuitAmount <- parameterDF[p, "pursuitAmount"]
     
-    #generate adjacency matrix (populate with 1)
-    pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
+    g <- 1
     
-    #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
-    pursuitMatrix_list <- list(pursuitMatrix)
-    
-    #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
-    tiesMatrix_list <- list(length = reassessments)
-    
-    #create empty payoff vector to store payoffs (later used for reproduction)
-    payoffs <- rep(0, length = popSize)
-    
-    #for each reassessment... (agents look backwards so start from 2)
-    for (t in 2:reassessments) {
-      #create the empty noncumulative adjacency matrix
-      tiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
+
+    while (g <= generations) {
       
-      #Calculate overlap in previous adjacency matrix#
+      print(g) #for keeping track
       
-      overlapMat <- overlap(pursuitMatrix_list[[t - 1]])
+      #make association matrix which gives agents slightly different perceptions of each others' AVs
+      associationMat <- makeAssociationMat(agents, AV_SD)
       
+      #generate adjacency matrix (populate with 1)
+      pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
       
-      #for each agent...
-      for (a in 1:nrow(agents)) {
-        #calculate overlap scores between themselves and the other agents
-        if (agents$strat[a] == "OV") {
-          overlap_scores <- overlapMat[a, ]
+      #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
+      pursuitMatrix_list <- list(pursuitMatrix)
+      
+      #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
+      tiesMatrix_list <- list(length = reassessments)
+      
+      #create empty payoff vector to store payoffs (later used for reproduction)
+      payoffs <- rep(0, length = popSize)
+      
+      #for each reassessment... (agents look backwards so start from 2)
+      for (t in 2:reassessments) {
+        
+        #create the empty noncumulative adjacency matrix
+        tiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
+        
+        #Calculate overlap in previous adjacency matrix#
+        
+        overlapMat <- overlap(pursuitMatrix_list[[t - 1]])
+        
+        
+        #for each agent...
+        for (a in 1:nrow(agents)) {
           
-        } else {
-          overlap_scores <- 1
+          #calculate overlap scores between themselves and the other agents
+          if (agents$strat[a] == "OV") {
+            
+            overlap_scores <- overlapMat[a, ]
+            
+          } else {
+            
+            overlap_scores <- 1
+          }
+          
+          #calculate the reciprocity scores between themselves and the other agents
+          reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
+          
+          #calculate the association values
+          association_values <- associationMat[a, ]
+          
+          #Combine overlap, reciprocity, and association scores into single calculation
+          pursuit_scores <- overlap_scores * reciprocity_scores * association_values
+          
+          #sort by product in descending order and get the indices of the top value agents
+          pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
+          
+          #add 1 to their pursuits in the cumulative the adjacency matrix
+          pursuitMatrix[a, pursuit_indices] <- pursuitMatrix[a, pursuit_indices] + 1
+          
+          #and to the individual one
+          tiesMatrix[a, pursuit_indices] <- 1
+          
+          
         }
         
-        #calculate the reciprocity scores between themselves and the other agents
-        reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
+        #add the pursuitMatrix to the matrix list
+        pursuitMatrix_list[[t]] <- pursuitMatrix
         
-        #calculate the association values
-        association_values <- associationMat[a, ]
+        #add the non cumulative matrix to its list
+        tiesMatrix_list[[t]] <- tiesMatrix
         
-        #Combine overlap, reciprocity, and association scores into single calculation
-        pursuit_scores <- overlap_scores * reciprocity_scores * association_values
+        #make matrix that has only reciprocated ties
+        friendsMatrix <- tiesMatrix * t(tiesMatrix)
         
-        #sort by product in descending order and get the indices of the top value agents
-        pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
+        #Game#
         
-        #add 1 to their pursuits in the cumulative the adjacency matrix
-        pursuitMatrix[a, pursuit_indices] <- pursuitMatrix[a, pursuit_indices] + 1
-        
-        #and to the individual one
-        tiesMatrix[a, pursuit_indices] <- 1
-        
-        
-      }
-      
-      #add the pursuitMatrix to the matrix list
-      pursuitMatrix_list[[t]] <- pursuitMatrix
-      
-      #add the non cumulative matrix to its list
-      tiesMatrix_list[[t]] <- tiesMatrix
-      
-      #make matrix that has only reciprocated ties
-      friendsMatrix <- tiesMatrix * t(tiesMatrix)
-      
-      #Game#
-      
-      for (i in sample(1:popSize)) {
-        #randomly pick one agent to play game
-        gamer <- i
-        
-        #pull indices of agents' reciprocated ties
-        gamerGroup <- which(friendsMatrix[gamer, ] == 1)
-        
-        #add the gamer to the group indices
-        gamerGroup <- c(gamerGroup, gamer)
-        
-        #subset the ties matrix to include only those in group
-        gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
-        
-        #change the names back to original indices
-        rownames(gamersMat) <- gamerGroup
-        colnames(gamersMat) <- gamerGroup
-        
-        #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
-        #Game happens only if all agents agree
-        if (nrow(gamersMat) == (pursuitAmount + 1) &
-            prod(rbinom(nrow(gamersMat), 1, rowSums(gamersMat) / nrow(gamersMat))) == 1) {
+        for (i in sample(1:popSize)) {
+          
+          #randomly pick one agent to play game
+          gamer <- i
+          
+          #pull indices of agents' reciprocated ties
+          gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+          
+          #add the gamer to the group indices
+          gamerGroup <- c(gamerGroup, gamer)
+          
+          #subset the ties matrix to include only those in group
+          gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+          
+          #change the names back to original indices
+          rownames(gamersMat) <- gamerGroup
+          colnames(gamersMat) <- gamerGroup
+          
+          #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
+          #Game happens only if all agents agree
+          if (nrow(gamersMat) == sizeReq & prod(rbinom(nrow(gamersMat), 1, rowSums(gamersMat) / nrow(gamersMat))) == 1) {
+            
           #calculate the payoff each agent will receive
           agents <- payoff(gamersMat, gamerGroup, agents)
+            
+          }
           
         }
         
       }
+      
+      
+      #Reproduce#
+      
+      #agents reproduce
+      agents <- reproduce(agents, selStrength, popSize, flipProb)
+      
+      #get the breakdown of strat population
+      stratTable <- as.data.frame(table(agents$strat))
+      
+      popOV <- stratTable$Freq[stratTable$Var1 == "OV"]
+      
+      resultsDF$population[resultsDF$generation == g & resultsDF$parameterInd == p] <- popOV
+      
+      g <- g + 1
       
     }
     
-    
-    
-    #Reproduce#
-    
-    #agents reproduce
-    agents <- reproduce(agents, selStrength, popSize, flipProb)
-    
-    #get the breakdown of strat population
-    stratTable <- as.data.frame(table(agents$strat))
-    
-    stratTable$generation <- g
-    
-    stratTable$loop <- m
-    
-    generation_results[[g]] <- stratTable
-    
-    g <- g+1
-    
   }
   
-  do.call(rbind, generation_results)
+ resultsDF
   
 }
-   
 
 stopCluster(cl)
 
@@ -550,10 +577,8 @@ endTime <- Sys.time()
 
 print(endTime - startTime)
 
-#write.csv(results, myPath)
+write.csv(results, myPath)
   
-#remove the null pop
-resultsOV <- results[results$combo == "OV",]
    
 ```
 
