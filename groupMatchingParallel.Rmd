@@ -35,13 +35,13 @@ popSize <- 100
 #pursuitAmount <- 3
 
 #number of times agents will reevaluate their pursuits
-reassessments <- 100
+reassessments <- 200
 
 #number of loops for the whole model
 modelLoops <- 20
 
 #number of generations
-generations <- 20
+generations <- 25
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
@@ -55,7 +55,7 @@ numOV <- 50
 numXX <- popSize - numOV
   
 #selection strength (higher = stronger)
-selStrength <- 3
+selStrength <- 4
 
 #probability of mutation
 flipProb <- 0.01
@@ -67,18 +67,12 @@ multiplier <- 1.2
 #sizeReq <- 4
 
 #path to save results file
-myPath <- "G:/My Drive/groupFormationResults/delete.csv"
+myPath <- "G:/My Drive/groupFormationResults/parameterChange.csv"
 
-
-
-
-# parameterDF <- data.frame("pursuitAmount" = c(4,4,6,6,8,8),
-#                           "sizeReq" = c(4,3,6,4,8,4)
-#                          )
+                    
 
 parameterDF <- data.frame("pursuitAmount" = c(3,3,5,5,7,7),
-                          "sizeReq" = c(4,3,6,4,8,4),
-                          ""
+                          "sizeReq" = c(4,3,6,4,8,4)
                          )
 
 ```
@@ -410,7 +404,7 @@ agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
 
 numCores <- detectCores()
 
-cl <- makeCluster(2)
+cl <- makeCluster(numCores-2)
 
 registerDoParallel(cl)
 
@@ -577,7 +571,19 @@ endTime <- Sys.time()
 
 print(endTime - startTime)
 
-write.csv(results, myPath)
+#add the parameter details to the results
+
+resultsAdd <- results
+
+parameterDF$parameterInd <- 1:nrow(parameterDF)
+
+resultsAdd$mutationRate <- 0.01
+resultsAdd$selStrength <- 4
+
+resultsAdd$pursuitAmount <- parameterDF$pursuitAmount[match(resultsAdd$parameterInd, parameterDF$parameterInd)]
+resultsAdd$sizeReq <- parameterDF$sizeReq[match(resultsAdd$parameterInd, parameterDF$parameterInd)]
+
+write.csv(resultsAdd, myPath)
   
    
 ```
