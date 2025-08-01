@@ -105,16 +105,16 @@ pursuitAmount <- 3
 reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 1
+modelLoops <- 2
 
 #number of generations
-generations <- 5
+generations <- 50
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 #set strength of selection
-selStrength <- 5
+selStrength <- 6
 
 #multiplier
 multiplier <- 1.2
@@ -433,11 +433,17 @@ reproduce <- function(agentDF, selStrength, n){
     offspringDF$association[a] <- association_value
     
     #mutate the weight of each primitive
-    offspringDF$A <- rnorm(1, mean = offspringDF$A[a], sd = .05)
-    offspringDF$G <- rnorm(1, mean = offspringDF$G[a], sd = .05)
-    offspringDF$P <- rnorm(1, mean = offspringDF$P[a], sd = .05)
-    offspringDF$D <- rnorm(1, mean = offspringDF$D[a], sd = .05)
-      
+    offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
+    offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
+    offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
+    offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
+    
+    #don't let the weight be negative
+    offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
+    offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
+    offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
+    offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
+    
     }
   
   return(offspringDF)
