@@ -316,9 +316,9 @@ overlap_mean <- function(agent, agentDF, matrixList){
   #bind value vectors together 
   ov_values <- rbind(A_val, G_val, P_val, D_val)
   
-  #replace 0s with NA 
-  ov_values[ov_values == 0] <- NA
-  
+  #replace 0s and negative values with NA 
+  ov_values[ov_values <= 0] <- NA
+
   #take the mean for each agent (by col)
   ov_means <- colMeans(ov_values, na.rm = T)
   
@@ -594,7 +594,7 @@ for(m in 1:modelLoops) {
     results$P_mean[results$generation == g & results$loop == m] <- avWeight_P
     results$D_mean[results$generation == g & results$loop == m] <- avWeight_D
 
-    #print(c("A",avWeight_A, "G",avWeight_G, "P",avWeight_P, "D",avWeight_D))
+    print(results[results$generation == g & results$loop == m, 3:6])
     
     g <- g+1
     
