@@ -96,7 +96,7 @@ library(doParallel)
 ```{r parameters}
 
 #number of agents to generate
-popSize <- 50
+popSize <- 100
 
 #number of pursuits each agent will have for each reassessment period
 pursuitAmount <- 3
@@ -108,12 +108,16 @@ reassessments <- 200
 modelLoops <- 1
 
 #number of generations
-generations <- 20
+generations <- 5
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
-selStrength <- 0.15
+#set strength of selection
+selStrength <- 5
+
+#multiplier
+multiplier <- 1.2
 
 myPath <- "C:/Users/clavra/Documents/groupFormation/resultsMain.csv"
 
@@ -349,22 +353,20 @@ reciprocity <- function(agent, adjMat){
 
 #Contributions#
 
-payoff <- function(gameMatrix, agentDF, payoffs){
+payoff <- function(gameMatrix, gamers, agentDF){
   
   #start the sum
   contributionTot <- 0
   
-  #pull the row names to loop though
-  groupIDs <- rownames(gameMatrix)
-  
   #for each agent...
-  for(agent in groupIDs){
+  for(agent in gamers){
     
     #their max contribution is their association value
     maxContribution <- agentDF$association[row.names(agentDF) == agent] * 100
     
     #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
-    proportionTied <- sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1)
+    proportionTied <- if (nrow(gameMatrix) > 1) sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1) else 0
+    
     
     #calculate their contribution 
     contribution <- maxContribution * proportionTied
@@ -373,19 +375,19 @@ payoff <- function(gameMatrix, agentDF, payoffs){
     contributionTot <- contributionTot + contribution
     
     #add their noncontributed pay to their corresponding slot in payoff vector (what they keep)
-    payoffs[as.numeric(agent)] <- payoffs[as.numeric(agent)] + (maxContribution - contribution)
+    agentDF$payoff[as.numeric(agent)] <- agentDF$payoff[as.numeric(agent)] + (maxContribution - contribution)
     
   }
   
-  contributionTot <- contributionTot * 1.2
+  contributionTot <- contributionTot * multiplier
   
   #divide the pooled contributions by the number of agents in the group
   basePay <- contributionTot/nrow(gameMatrix)
   
-  payoffs[as.numeric(gamerGroup)] <- payoffs[as.numeric(gamerGroup)] + basePay
+  agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
   
-  #return the single payoff
-  return(payoffs)
+  #return the payoff vector
+  return(agentDF)
   
 }
 
@@ -463,8 +465,6 @@ results <- data.frame("loop" = rep(1:modelLoops, each = generations+1),
 
 
 
-results$population[results$generation == 0] <- 1
-
 
 for(m in 1:modelLoops) {
   
@@ -476,8 +476,6 @@ for(m in 1:modelLoops) {
   g <- 1
   
   while(g <= generations){
-    
-    print(g) #for keeping track
     
     #make association matrix which gives agents slightly different perceptions of each others' AVs
     associationMat <- makeAssociationMat(agents, AV_SD, popSize)
@@ -547,8 +545,6 @@ for(m in 1:modelLoops) {
       
         #randomly pick one agent to play game
         gamer <- sample(popSize, 1)
-        
-        print(gamer)
       
         for (i in sample(1:popSize)) {
         #randomly pick one agent to play game
@@ -584,7 +580,7 @@ for(m in 1:modelLoops) {
     #Reproduce#
     
     #agents reproduce
-    agents <- reproduce(agents, selStrength, popSize, flipProb) 
+    agents <- reproduce(agents, selStrength, popSize) 
     
     #get the average weight of each prim across agents
     avWeight_A <- mean(agents$A)
@@ -598,9 +594,11 @@ for(m in 1:modelLoops) {
     results$P_mean[results$generation == g & results$loop == m] <- avWeight_P
     results$D_mean[results$generation == g & results$loop == m] <- avWeight_D
 
-    print(c("A",avWeight_A, "G",avWeight_G, "P",avWeight_P, "D",avWeight_D))
+    #print(c("A",avWeight_A, "G",avWeight_G, "P",avWeight_P, "D",avWeight_D))
     
     g <- g+1
+    
+    print(g)
     
   }
   
@@ -616,9 +614,7 @@ end.time <- Sys.time()
 
 print(end.time - start.time)
 
-results_may18 <- results
-
-write.csv(results, myPath)
+#write.csv(results, myPath)
       
 ```
 
