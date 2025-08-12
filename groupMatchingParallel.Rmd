@@ -393,11 +393,85 @@ payoff <- function(gameMatrix, gamers, agentDF){
 
 
 
-
 #Reproduce#
+
+#trying out different option for reproduction (sexual rep)
+
+# SEXUAL REPRODUCTION #
+reproduce_sex <- function(agentDF, selStrength, n){
+  
+  #rescale payoffs to be between 0-1
+  agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
+  agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
+  
+  #add constant to prob weight to fix strength of selection
+  agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
+  
+  #make empty offspring dataframe
+  offspringDF <- agentDF
+  offspringDF[] <- NA
+  
+  for(i in 1:nrow(offspringDF)){
+    
+    #sample 2 agents to make love with prob based on payoff
+    parents <- agentDF[sample(1:nrow(agentDF), 2, replace = F, prob = agentDF$payoff),]
+    
+    #inherit each weight trait from either parent
+    offspringDF$A[i] <- sample(parents$A,1,replace = T)
+    offspringDF$G[i] <- sample(parents$G,1,replace = T)
+    offspringDF$P[i] <- sample(parents$P,1,replace = T)
+    offspringDF$D[i] <- sample(parents$D,1,replace = T)
+    
+    #idk about association value, just gonna do the same for now
+    offspringDF$association[i] <- sample(parents$association,1,replace = T)
+    
+  }
+  
+  
+  #Reset payoff vec
+  offspringDF$payoff <- 0
+  
+  
+  #Mutation:
+  
+  #for each agent...
+  for (a in 1:nrow(offspringDF)) {
+    
+    #change their association value to be within certain SD of original parent AV
+    association_value <- rnorm(1, mean = offspringDF$association[a], sd = .05)
+    
+    #don't let association value get above 1
+    association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
+    
+    #don't let association value get below 0
+    association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
+    
+    #assign the new mutated association value
+    offspringDF$association[a] <- association_value
+    
+    #mutate the weight of each primitive
+    offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
+    offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
+    offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
+    offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
+    
+    #don't let the weight be negative
+    offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
+    offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
+    offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
+    offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
+    
+  }
+  
+  return(offspringDF)
+  
+}
+
+
+# ASEXUAL REPRODUCTION #
 #agents reproduce using roulette wheel selection, higher payoff = better reproductive success
 
-reproduce <- function(agentDF, selStrength, n){
+reproduce_asex <- function(agentDF, selStrength, n){
   
   #rescale payoffs to be between 0-1
   agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
@@ -461,23 +535,32 @@ reproduce <- function(agentDF, selStrength, n){
 
 start.time <- Sys.time()
 
-results <- data.frame("loop" = rep(1:modelLoops, each = generations+1),
+
+#make the starting agent DFs
+agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
+
+
+#set up parallel processing
+numCores <- detectCores()
+cl <- makeCluster(numCores - 2)
+registerDoParallel(cl)
+
+
+#Start of life cycle#
+
+results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
+  
+  resultsDF <- data.frame("loop" = rep(m),
                       "generation" = rep(0:generations),
                       "A_mean" = NA,
                       "G_mean" = NA,
                       "P_mean" = NA,
                       "D_mean" = NA
                       )
-
-
-
-
-for(m in 1:modelLoops) {
   
-  print(m)
   
   #Generate parent agents
-  agents <- agentGenerate(popSize)
+  agents <- agentDFs[[m]]
   
   g <- 1
   
@@ -586,7 +669,7 @@ for(m in 1:modelLoops) {
     #Reproduce#
     
     #agents reproduce
-    agents <- reproduce(agents, selStrength, popSize) 
+    agents <- reproduce_sex(agents, selStrength, popSize) 
     
     #get the average weight of each prim across agents
     avWeight_A <- mean(agents$A)
@@ -594,13 +677,11 @@ for(m in 1:modelLoops) {
     avWeight_P <- mean(agents$P)
     avWeight_D <- mean(agents$D)
     
-    #add these to results DF
-    results$A_mean[results$generation == g & results$loop == m] <- avWeight_A
-    results$G_mean[results$generation == g & results$loop == m] <- avWeight_G
-    results$P_mean[results$generation == g & results$loop == m] <- avWeight_P
-    results$D_mean[results$generation == g & results$loop == m] <- avWeight_D
-
-    print(results[results$generation == g & results$loop == m, 3:6])
+    #add these to resultsDF DF
+    resultsDF$A_mean[resultsDF$generation == g] <- avWeight_A
+    resultsDF$G_mean[resultsDF$generation == g] <- avWeight_G
+    resultsDF$P_mean[resultsDF$generation == g] <- avWeight_P
+    resultsDF$D_mean[resultsDF$generation == g] <- avWeight_D
     
     g <- g+1
     
@@ -608,10 +689,12 @@ for(m in 1:modelLoops) {
     
   }
   
-  end.time <- Sys.time()
+  resultsDF
+  
 }
   
-
+#end parallel processing
+stopCluster(cl)
 
 
 
