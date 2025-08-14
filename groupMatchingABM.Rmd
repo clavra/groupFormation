@@ -105,22 +105,24 @@ pursuitAmount <- 3
 reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 2
+modelLoops <- 5
 
 #number of generations
-generations <- 50
+generations <- 5
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 #set strength of selection
-selStrength <- 6
+selStrength <- 15
 
 #multiplier
 multiplier <- 1.2
 
-myPath <- "C:/Users/clavra/Documents/groupFormation/resultsMain.csv"
+#mutation probability that binary prim trait will turn on/off 
+flipProb <- 0.01
 
+myPath <- "C:/Users/clavra/Documents/groupFormation/resultsMain.csv"
 
 
 ```
@@ -142,17 +144,13 @@ agentGenerate <- function(n){
   association <- (association/100)
   
   #generate weight of each prim for each agent 
-  A <- sample(1:100, n, replace = T)
-  A <- A/100
+  A <- rbinom(n, 1, 0.5)
   
-  G <- sample(1:100, n, replace = T)
-  G <- G/100
+  G <- rbinom(n, 1, 0.5)
   
-  P <- sample(1:100, n, replace = T)
-  P <- P/100
+  P <- rbinom(n, 1, 0.5)
   
-  D <- sample(1:100, n, replace = T)
-  D <- D/100
+  D <- rbinom(n, 1, 0.5)
   
   payoff <- 0
   
@@ -295,35 +293,26 @@ overlap_prims<- function(adjMat) {
 
 overlap_mean <- function(agent, agentDF, matrixList){
   
-  #get the agent's overlap value of the other agents for each prim (vector)
-  A_ov <- matrixList$A[agent,]
-  G_ov <- matrixList$G[agent,]
-  P_ov <- matrixList$P[agent,]
-  D_ov <- matrixList$D[agent,]
+ #for a given agent:
   
-  #get the weight of each prim
-  A_weight <- agentDF[agent, "A"]
-  G_weight <- agentDF[agent, "G"]
-  P_weight <- agentDF[agent, "P"]
-  D_weight <- agentDF[agent, "D"]
+  #get her binary prim vector from agent DF
+  prims <- agentDF[agent, c("A","G","P","D")]
   
-  #multiply the value for each prim by the weight
-  A_val <- A_ov * A_weight
-  G_val <- G_ov * G_weight
-  P_val <- P_ov * P_weight
-  D_val <- D_ov * D_weight
+  #get the names of the prims she is to use
+  selectedPrims <- names(prims)[prims == 1]
   
-  #bind value vectors together 
-  ov_values <- rbind(A_val, G_val, P_val, D_val)
-  
-  #replace 0s and negative values with NA 
-  ov_values[ov_values <= 0] <- NA
-
-  #take the mean for each agent (by col)
-  ov_means <- colMeans(ov_values, na.rm = T)
-  
-  #return the vector of means
-  return(ov_means)
+  #get only the prim matrices she will be using
+  selectedMats <- matrixList[selectedPrims]
+    
+  #get her rows from the prim mats and bind them together
+  row_values <- do.call(rbind, lapply(selectedMats, function(mat)
+        mat[agent,]))
+    
+  #take the element wise average
+  means <- if(is.null(row_values)) rep(1, popSize) else colMeans(row_values)
+    
+  #return the vector of means, where each element is her overlap score with each other agent
+  return(means)
   
 }
 
@@ -506,28 +495,23 @@ reproduce_asex <- function(agentDF, selStrength, n){
     #assign the new mutated association value
     offspringDF$association[a] <- association_value
     
-    #mutate the weight of each primitive
-    offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
-    offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
-    offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
-    offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
-    
-    #don't let the weight be negative
-    offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
-    offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
-    offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
-    offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
-    
+    #mutate prims
+    #for each of the four strategy columns...
+    for (c in 2:5) {
+      
+      #see whether or not to flip the value based on a certain prob
+      random_flip <- rbinom(1, 1, flipProb)
+      
+      #if random flip is true, then flip the value
+      offspringDF[a, c] <- ifelse(random_flip == 1, 1 - offspringDF[a, c], offspringDF[a, c])
+      
     }
+    
+   }
   
   return(offspringDF)
   
 }
-
-
-
-
-
 
 
 
@@ -653,6 +637,7 @@ for(m in 1:modelLoops) {
         #Game happens only if all agents agree
         if (nrow(gamersMat) == (pursuitAmount + 1) &
             prod(rbinom(nrow(gamersMat), 1, rowSums(gamersMat) / nrow(gamersMat))) == 1) {
+          
           #calculate the payoff each agent will receive
           agents <- payoff(gamersMat, gamerGroup, agents)
           
@@ -666,7 +651,7 @@ for(m in 1:modelLoops) {
     #Reproduce#
     
     #agents reproduce
-    agents <- reproduce_sex(agents, selStrength, popSize) 
+    agents <- reproduce_asex(agents, selStrength, popSize) 
     
     #get the average weight of each prim across agents
     avWeight_A <- mean(agents$A)
@@ -708,299 +693,32 @@ print(end.time - start.time)
 
 ```{r analysis}
 
-#do bar graph with generations on x, phenotype on y, and goes to max generation with at least 1 offspring of that phenotype 
+#put into into long format
+results_long <- pivot_longer(results, cols = c(3:6), names_to = "prim", values_to = "mean_true")
 
-results_labs <- results %>%
-  group_by(Var1) %>%
-  filter(generation == max(generation)) %>%
-  ungroup()
 
-#results <- results[results$generation < 141,]
-
-p1 <- ggplot(data = results[results$loop == 1,],
+p1 <- ggplot(data = results_long,
                aes(x = generation,
-                   y = Freq,
-                   color = Var1)) +
+                   y = mean_true,
+                   color = prim)) +
   labs(x = "Generation",
-       y = "Population",
+       y = "Mean agents using prim",
        color = "Phenotype") +
   geom_line() +
-  geom_text(
-    data = results_labs,
-    aes(label = Var1),
-    hjust = -0.1,
-    size = 4,
-    fontface = "bold"
-  ) +
-  xlim(min(results$generation), max(results$generation) + 0.5) +  # Give space for labels
-  theme_minimal()
+  # geom_text(
+  #   data = results_labs,
+  #   aes(label = prim),
+  #   hjust = -0.1,
+  #   size = 4,
+  #   fontface = "bold"
+  #) +
+#  xlim(min(results$generation), max(results$generation) + 0.5) +  # Give space for labels
+  theme_minimal() +
+  facet_wrap(~loop)
 
 
 
 plot(p1)
-
-
-
-
-#calculate percent of edges that are present in previous reassessment period
-results$percentPersist <- (results$intersectLast/results$numEdges)*100
-
-
-tiesM <- lastGraphs
-
-#only include edges that are reciprocated
-for(g in 1:length(lastGraphs)) {
-  lastGraphs[[g]] <- subgraph.edges(lastGraphs[[g]],
-                                    E(lastGraphs[[g]])[which_mutual(lastGraphs[[g]])],
-                                    delete.vertices = F) #maybe i can just do this with true to get groups
-  
-}
-
-E(lastGraphs[[76]])
-
-#check the strats of those with recip ties
-
-plot(lastGraphsFull[[300]],
-     layout = layout.fruchterman.reingold,
-     #vertex.label = NA,
-     #  rescale = F,
-     layout = layout_with_kk,
-     vertex.size = 8,
-     #vertex.color = vertex.color,
-     vertex.label.color = "black",
-     vertex.shape = "circle",
-     edge.arrow.size = 0.3)
-
-
-
-
-
-
-#Plots
-
-#Edge Amount Plot#
-#plot the number of reciprocated edges throughout reassessment periods [average this across loops w SE]
-
-persist_plot <- ggplot(data = resultsTail,
-       aes(x = reassess,
-           y = numEdges,
-           color = as.factor(loop),
-           groups = as.factor(loop)
-       )) +
-  facet_wrap(~prims) +
-  labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
-       subtitle = "last 100 reassessments across model loops for each primitive combo",
-       x = "reassessment period",
-       y = "percent persist",
-       color = "loop") +
-  geom_smooth(se = F) +
-  geom_hline(yintercept = 300, linetype = "dashed")
-
-print(persist_plot)
-
-
-
-#Edge Persistence Plot#
-#plot the percent of edges that persist for each combo across model loops
-persist_plot <- ggplot(data = results,
-       aes(x = reassess,
-           y = percentPersist,
-           color = as.factor(loop),
-           groups = as.factor(loop)
-       )) +
-  facet_wrap(~prims) +
-  labs(title = "Percent of Edges that Persist from Previous Reassessment Period",
-       subtitle = "last 100 reassessments across model loops for each primitive combo",
-       x = "reassessment period",
-       y = "percent persist",
-       color = "loop") +
-  geom_smooth(se = F) +
-  geom_hline(yintercept = 100, linetype = "dashed")
-
-print(persist_plot)
-
-
-
-#Ranks
-
-#subset results df to only tail entries (after model converges)
-resultsTail <- results[results$reassess > reassessments - 100,]
-
-#calculate mean edge persistence, association val assortativity, and number of isolates 
-
-edgesTail <- resultsTail %>%
-  group_by(prims) %>%
-  summarize(
-    meanEdges = mean(numEdges, na.rm = TRUE),
-    sdEdges = sd(numEdges, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-persistTail <- resultsTail %>%
-  group_by(prims) %>%
-  summarize(
-    meanPersist = mean(percentPersist, na.rm = TRUE),
-    sdPersist = sd(percentPersist, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-assortTail <- resultsTail %>%
-  group_by(prims) %>%
-  summarize(
-    meanAssort = mean(assort_association, na.rm = TRUE),
-    sdAssort = sd(assort_association, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-isolatesTail <- resultsTail %>%
-  group_by(prims) %>%
-  summarize(
-    meanIsolates = sum(num_isolates, na.rm = TRUE),
-#    sdIsolates = sd(num_isolates, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-
-###########################################
-
-
-#create vector of unique association values in order 
-associationVals <- sort(unique(agents$association))
-
-#create color ramp palette
-cols <- setNames(colorRampPalette(c("red", "yellow", "green"))(length(associationVals)), associationVals)
-
-# initialize color vector
-vertColors <- rep(NA, popSize)
-
-# assign colors based on association values
-for (i in 1:nrow(agents)) {
-  
-  a <- agents$association[i]
-  
-  agents$color[i] <- cols[as.character(a)]
-}
-
-#############
-
-
-
-# Generate 16 distinct colors
-color_palette <- distinctColorPalette(16) 
-
-# Map colors to categories
-category_colors <- setNames(color_palette, unique(agents$strat)) 
-
-# Assign colors based on category
-agents$stratColor <- category_colors[agents$strat]
-
-
-tiesMatrix_list <- tiesMatrix_list[-c(1)]
-
-igraph_list <- lapply(tiesMatrix_list, graph_from_adjacency_matrix, add.rownames = T)
-  
-#loop through each igraph object
-for (g in 1:length(igraph_list)) {
-  
-  #only include edges that are reciprocated
-  igraph_list[[g]] <- subgraph.edges(igraph_list[[g]],
-                                     E(igraph_list[[g]])[which_mutual(igraph_list[[g]])],
-                                     delete.vertices = F) #maybe i can just do this with true to get groups
-  
-  #just curious
-  print(length(subgraph.edges(igraph_list[[g]], E(igraph_list[[g]])[which_mutual(igraph_list[[g]])])))
-  
-  
-}
-
-
-
-for(r in 1:length(igraph_list)) {
-  
-  V(igraph_list[[r]])$name <- as.character(c(1:160))
-  
-  V(igraph_list[[r]])$association <- agents$association[match(V(igraph_list[[r]])$name, rownames(agents))]
-  
-   V(igraph_list[[r]])$strat <- agents$strat[match(V(igraph_list[[r]])$name, rownames(agents))]
-  
-  V(igraph_list[[r]])$color <- agents$stratColor[match(V(igraph_list[[r]])$name, rownames(agents))]
-
-  
-}
-
-vertex_names <- as.character(V(igraph_list[[r]])$name)
-agent_ids <- rownames(agents)
-
-# Confirm:
-all(vertex_names %in% agent_ids)  # Should be TRUE
-
-#only include edges that are reciprocated
-for(g in 1:length(graph_list)) {
-  graph_list[[g]] <- subgraph.edges(graph_list[[g]],
-                                    E(graph_list[[g]])[which_mutual(graph_list[[g]])],
-                                    delete.vertices = F) #maybe i can just do this with true to get groups
-  
-}
-
-
-###
-
-
-
-
-#add vertex attributes
-for(r in 1:length(graph_list)) {
-  
-  V(graph_list[[r]])$name <- c(1:160)
-  
-  V(graph_list[[r]])$association <- agents$association
-  
-  V(graph_list[[r]])$strat <- agents$strat
-  
-  V(graph_list[[r]])$color <- agents$stratColor
-  
-}
-
-graph_list <- lapply(graph_list, function(g) {
-  V(g)$name <- c(1:160)
-  V(g)$strat <- agents$strat
-  return(g)
-})
-
-
-plot(graph_list[[300]],
-     layout = layout.fruchterman.reingold,
-     vertex.label = NA,
-     #  rescale = F,
-     layout = layout_with_kk,
-     vertex.size = 8,
-     #vertex.color = vertex.color,
-     vertex.label.color = "black",
-     vertex.shape = "circle",
-     edge.arrow.size = 0.3)
-
-
-legend("topright", legend = names(category_colors), fill = category_colors, title = "Categories", border = "black", cex = 0.8, bty = "n")
-
-
-# ggplot(data = results,
-#        aes(x = reassess,
-#            y = numEdges,
-#            color = as.factor(prims))) +
-#   labs(title = "",
-#        subtitle = "",
-#        x = "reassessment period",
-#        y = "percent of edges that are reciprocated",
-#        color = "primitives") +
-#   geom_smooth(se= F)
-
-
-
-overlap(50, adjMat = random_matrix, component = c("association"))
-
-
-random_matrix <- matrix(sample(0:1, 400, replace = T), nrow = 20, ncol = 20)
-gameMatrix <- matrix(sample(0:1, 16, replace = T), nrow = 4, ncol = 4)
 
 ```
 

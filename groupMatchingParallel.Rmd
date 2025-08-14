@@ -119,6 +119,9 @@ selStrength <- 6
 #multiplier
 multiplier <- 1.2
 
+#mutation probability that binary prim trait will turn on/off 
+flipProb <- 0.01
+
 myPath <- "C:/Users/clavra/Documents/groupFormation/resultsMain.csv"
 
 
@@ -142,17 +145,13 @@ agentGenerate <- function(n){
   association <- (association/100)
   
   #generate weight of each prim for each agent 
-  A <- sample(1:100, n, replace = T)
-  A <- A/100
+  A <- rbinom(n, 1, 0.5)
   
-  G <- sample(1:100, n, replace = T)
-  G <- G/100
+  G <- rbinom(n, 1, 0.5)
   
-  P <- sample(1:100, n, replace = T)
-  P <- P/100
+  P <- rbinom(n, 1, 0.5)
   
-  D <- sample(1:100, n, replace = T)
-  D <- D/100
+  D <- rbinom(n, 1, 0.5)
   
   payoff <- 0
   
@@ -295,35 +294,26 @@ overlap_prims<- function(adjMat) {
 
 overlap_mean <- function(agent, agentDF, matrixList){
   
-  #get the agent's overlap value of the other agents for each prim (vector)
-  A_ov <- matrixList$A[agent,]
-  G_ov <- matrixList$G[agent,]
-  P_ov <- matrixList$P[agent,]
-  D_ov <- matrixList$D[agent,]
+  #for a given agent:
   
-  #get the weight of each prim
-  A_weight <- agentDF[agent, "A"]
-  G_weight <- agentDF[agent, "G"]
-  P_weight <- agentDF[agent, "P"]
-  D_weight <- agentDF[agent, "D"]
+  #get her binary prim vector from agent DF
+  prims <- agentDF[agent, c("A","G","P","D")]
   
-  #multiply the value for each prim by the weight
-  A_val <- A_ov * A_weight
-  G_val <- G_ov * G_weight
-  P_val <- P_ov * P_weight
-  D_val <- D_ov * D_weight
+  #get the names of the prims she is to use
+  selectedPrims <- names(prims)[prims == 1]
   
-  #bind value vectors together 
-  ov_values <- rbind(A_val, G_val, P_val, D_val)
-  
-  #replace 0s and negative values with NA 
-  ov_values[ov_values <= 0] <- NA
-
-  #take the mean for each agent (by col)
-  ov_means <- colMeans(ov_values, na.rm = T)
-  
-  #return the vector of means
-  return(ov_means)
+  #get only the prim matrices she will be using
+  selectedMats <- matrixList[selectedPrims]
+    
+  #get her rows from the prim mats and bind them together
+  row_values <- do.call(rbind, lapply(selectedMats, function(mat)
+        mat[agent,]))
+    
+  #take the element wise average
+  means <- if(is.null(row_values)) rep(1, popSize) else colMeans(row_values)
+    
+  #return the vector of means, where each element is her overlap score with each other agent
+  return(means)
   
 }
 
@@ -449,17 +439,18 @@ reproduce_sex <- function(agentDF, selStrength, n){
     #assign the new mutated association value
     offspringDF$association[a] <- association_value
     
-    #mutate the weight of each primitive
-    offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
-    offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
-    offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
-    offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
     
-    #don't let the weight be negative
-    offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
-    offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
-    offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
-    offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
+    #mutate prims
+    #for each of the four strategy columns...
+    for (c in 2:5) {
+      
+      #see whether or not to flip the value based on a certain prob
+      random_flip <- rbinom(1, 1, flipProb)
+      
+      #if random flip is true, then flip the value
+      offspringDF[a, c] <- ifelse(random_flip == 1, 1 - offspringDF[a, c], offspringDF[a, c])
+      
+    }
     
   }
   
@@ -669,7 +660,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     #Reproduce#
     
     #agents reproduce
-    agents <- reproduce_sex(agents, selStrength, popSize) 
+    agents <- reproduce_asex(agents, selStrength, popSize) 
     
     #get the average weight of each prim across agents
     avWeight_A <- mean(agents$A)
@@ -710,40 +701,42 @@ print(end.time - start.time)
 
 ```{r analysis}
 
-#do bar graph with generations on x, phenotype on y, and goes to max generation with at least 1 offspring of that phenotype 
 
-results_labs <- results %>%
-  group_by(Var1) %>%
-  filter(generation == max(generation)) %>%
-  ungroup()
+#put into into long format
+results_long <- pivot_longer(results, cols = c(3:6), names_to = "prim", values_to = "mean_true")
 
-#results <- results[results$generation < 141,]
-
-p1 <- ggplot(data = results[results$loop == 1,],
+#plot 
+p1 <- ggplot(data = results_long,
                aes(x = generation,
-                   y = Freq,
-                   color = Var1)) +
+                   y = mean_true,
+                   color = prim)) +
   labs(x = "Generation",
-       y = "Population",
+       y = "Mean agents using prim",
        color = "Phenotype") +
   geom_line() +
-  geom_text(
-    data = results_labs,
-    aes(label = Var1),
-    hjust = -0.1,
-    size = 4,
-    fontface = "bold"
-  ) +
-  xlim(min(results$generation), max(results$generation) + 0.5) +  # Give space for labels
-  theme_minimal()
-
-
+#  xlim(min(results$generation), max(results$generation) + 0.5) + 
+  theme_minimal() +
+  facet_wrap(~loop)
 
 plot(p1)
 
 
+###
 
+#adding prim labels directly to the line
 
+# results_labs <- results %>%
+#   group_by(Var1) %>%
+#   filter(generation == max(generation)) %>%
+#   ungroup()
+
+  # geom_text(
+  #   data = results_labs,
+  #   aes(label = prim),
+  #   hjust = -0.1,
+  #   size = 4,
+  #   fontface = "bold"
+  #) +
 
 ```
 
