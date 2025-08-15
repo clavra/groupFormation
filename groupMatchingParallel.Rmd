@@ -497,17 +497,8 @@ reproduce_asex <- function(agentDF, selStrength, n){
     #assign the new mutated association value
     offspringDF$association[a] <- association_value
     
-    #mutate the weight of each primitive
-    offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
-    offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
-    offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
-    offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
-    
-    #don't let the weight be negative
-    offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
-    offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
-    offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
-    offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
+    #flip each trait or nah and replace into corresponding cells
+    offspringDF[a, 2:5] <- (offspringDF[a, 2:5] + rbinom(4, 1, flipProb)) %% 2
     
     }
   
@@ -553,8 +544,13 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   #Generate parent agents
   agents <- agentDFs[[m]]
   
+  #add the initial prim means to generation 0 in results
+  resultsDF[resultsDF$generation == 0, c(3:6)] <- colMeans(agents[2:5])
+  
+  #set first generation
   g <- 1
   
+  #start loop
   while(g <= generations){
     
     #make association matrix which gives agents slightly different perceptions of each others' AVs
@@ -693,7 +689,7 @@ end.time <- Sys.time()
 
 print(end.time - start.time)
 
-#write.csv(results, myPath)
+write.csv(results, myPath)
       
 ```
 
@@ -711,8 +707,8 @@ p1 <- ggplot(data = results_long,
                    y = mean_true,
                    color = prim)) +
   labs(x = "Generation",
-       y = "Mean agents using prim",
-       color = "Phenotype") +
+       y = "% of agents using prim",
+       color = "Prim") +
   geom_line() +
 #  xlim(min(results$generation), max(results$generation) + 0.5) + 
   theme_minimal() +
