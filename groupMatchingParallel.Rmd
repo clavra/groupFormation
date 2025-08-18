@@ -144,19 +144,14 @@ agentGenerate <- function(n){
   association <- round(association, digits = 0)
   association <- (association/100)
   
-  #generate weight of each prim for each agent 
-  A <- rbinom(n, 1, 0.5)
-  
-  G <- rbinom(n, 1, 0.5)
-  
-  P <- rbinom(n, 1, 0.5)
-  
-  D <- rbinom(n, 1, 0.5)
-  
+  #make payoff col
   payoff <- 0
   
+  #make strat col: do they use min or mean of prims to calculate overlap
+  strat <- sample(1:2, n, replace = T)
+  
   #put it all together in a df
-  agents <- data.frame(association, A, G, P, D, payoff)
+  agents <- data.frame(association, strat, payoff)
     
   
   return(agents)
@@ -292,28 +287,31 @@ overlap_prims<- function(adjMat) {
 #Overlap Score Calculation#
 #average based on agent's prim strat
 
-overlap_mean <- function(agent, agentDF, matrixList){
+overlap_fun <- function(agent, agentDF, matrixList) {
   
   #for a given agent:
   
-  #get her binary prim vector from agent DF
-  prims <- agentDF[agent, c("A","G","P","D")]
-  
-  #get the names of the prims she is to use
-  selectedPrims <- names(prims)[prims == 1]
-  
-  #get only the prim matrices she will be using
-  selectedMats <- matrixList[selectedPrims]
-    
   #get her rows from the prim mats and bind them together
-  row_values <- do.call(rbind, lapply(selectedMats, function(mat)
-        mat[agent,]))
+  row_values <- do.call(rbind, lapply(matrixList, function(mat)
+    mat[agent, ]))
+  
+  
+  #if the agent's strat is 1, overlap score = average of the 4 primitive scores
+  if (agentDF$strat[a] == 1) {
     
-  #take the element wise average
-  means <- if(is.null(row_values)) rep(1, popSize) else colMeans(row_values)
+    #take the element wise average
+    scores <- colMeans(row_values)
     
+  #if the agent's strat is 2, overlap scores = minimum among the 4 primitive scores
+  } else if (agentDF$strat[a] == 2) {
+    
+    #take the element wise mins
+    scores <- apply(row_values, 2, FUN = min)
+    
+  }
+  
   #return the vector of means, where each element is her overlap score with each other agent
-  return(means)
+  return(scores)
   
 }
 
@@ -385,84 +383,10 @@ payoff <- function(gameMatrix, gamers, agentDF){
 
 #Reproduce#
 
-#trying out different option for reproduction (sexual rep)
-
-# SEXUAL REPRODUCTION #
-reproduce_sex <- function(agentDF, selStrength, n){
-  
-  #rescale payoffs to be between 0-1
-  agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
-  agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
-  
-  #add constant to prob weight to fix strength of selection
-  agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
-  
-  #make empty offspring dataframe
-  offspringDF <- agentDF
-  offspringDF[] <- NA
-  
-  for(i in 1:nrow(offspringDF)){
-    
-    #sample 2 agents to make love with prob based on payoff
-    parents <- agentDF[sample(1:nrow(agentDF), 2, replace = F, prob = agentDF$payoff),]
-    
-    #inherit each weight trait from either parent
-    offspringDF$A[i] <- sample(parents$A,1,replace = T)
-    offspringDF$G[i] <- sample(parents$G,1,replace = T)
-    offspringDF$P[i] <- sample(parents$P,1,replace = T)
-    offspringDF$D[i] <- sample(parents$D,1,replace = T)
-    
-    #idk about association value, just gonna do the same for now
-    offspringDF$association[i] <- sample(parents$association,1,replace = T)
-    
-  }
-  
-  
-  #Reset payoff vec
-  offspringDF$payoff <- 0
-  
-  
-  #Mutation:
-  
-  #for each agent...
-  for (a in 1:nrow(offspringDF)) {
-    
-    #change their association value to be within certain SD of original parent AV
-    association_value <- rnorm(1, mean = offspringDF$association[a], sd = .05)
-    
-    #don't let association value get above 1
-    association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
-    
-    #don't let association value get below 0
-    association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
-    
-    #assign the new mutated association value
-    offspringDF$association[a] <- association_value
-    
-    
-    #mutate prims
-    #for each of the four strategy columns...
-    for (c in 2:5) {
-      
-      #see whether or not to flip the value based on a certain prob
-      random_flip <- rbinom(1, 1, flipProb)
-      
-      #if random flip is true, then flip the value
-      offspringDF[a, c] <- ifelse(random_flip == 1, 1 - offspringDF[a, c], offspringDF[a, c])
-      
-    }
-    
-  }
-  
-  return(offspringDF)
-  
-}
-
-
-# ASEXUAL REPRODUCTION #
+# REPRODUCTION #
 #agents reproduce using roulette wheel selection, higher payoff = better reproductive success
 
-reproduce_asex <- function(agentDF, selStrength, n){
+reproduce <- function(agentDF, selStrength, n){
   
   #rescale payoffs to be between 0-1
   agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
@@ -482,25 +406,36 @@ reproduce_asex <- function(agentDF, selStrength, n){
   
   #Mutation:
   
-  #for each agent...
-  for (a in 1:nrow(offspringDF)) {
+ #Mutations:
+  
+  #Association Value
+
+  #change their association value to be within certain SD of original parent AV
+  association_values <- rnorm(1, mean = offspringDF$association, sd = .05)
+  
+  #don't let association value get above 1
+  association_values <- ifelse(association_values > 1, 1 - (association_values - 1), association_values)
+  
+  #don't let association value get below 0
+  association_values <- ifelse(association_values < 0, 0 + abs(association_values), association_values)
+  
+  #assign the new mutated association value
+  offspringDF$association <- association_values
+  
+  
+  #Overlap Strategy
+  
+  #get the vector of strategies
+  strats <- offspringDF$strat 
+  
+  #see whether or not to to flip overlap strat
+  random_flips <- rbinom(n, 1, flipProb)
+  
+  #flip strat if random flip was true
+  strats <- ifelse(random_flips == 1, 3 - strats, strats)
     
-    #change their association value to be within certain SD of original parent AV
-    association_value <- rnorm(1, mean = offspringDF$association[a], sd = .05)
-    
-    #don't let association value get above 1
-    association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
-    
-    #don't let association value get below 0
-    association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
-    
-    #assign the new mutated association value
-    offspringDF$association[a] <- association_value
-    
-    #flip each trait or nah and replace into corresponding cells
-    offspringDF[a, 2:5] <- (offspringDF[a, 2:5] + rbinom(4, 1, flipProb)) %% 2
-    
-    }
+  #replace into df
+  offspringDF$strat <- strats 
   
   return(offspringDF)
   
@@ -533,19 +468,21 @@ registerDoParallel(cl)
 results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   
   resultsDF <- data.frame("loop" = rep(m),
-                      "generation" = rep(0:generations),
-                      "A_mean" = NA,
-                      "G_mean" = NA,
-                      "P_mean" = NA,
-                      "D_mean" = NA
+                      "generation" = rep(0:generations, each = 2),
+                      "strat" = rep(c("mean", "min")),
+                      "population" = NA
                       )
   
   
   #Generate parent agents
   agents <- agentDFs[[m]]
   
-  #add the initial prim means to generation 0 in results
-  resultsDF[resultsDF$generation == 0, c(3:6)] <- colMeans(agents[2:5])
+  #get the % of agents using each strat
+  stratTableOG <- table(agents$strat)
+    
+  #add these to resultsDF DF
+  resultsDF$population[resultsDF$generation == g & resultsDF$strat == "mean"] <- stratTableOG["1"]
+  resultsDF$population[resultsDF$generation == g & resultsDF$strat == "min"] <- stratTableOG["2"]
   
   #set first generation
   g <- 1
@@ -656,19 +593,15 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
     #Reproduce#
     
     #agents reproduce
-    agents <- reproduce_asex(agents, selStrength, popSize) 
+    agents <- reproduce(agents, selStrength, popSize) 
     
-    #get the average weight of each prim across agents
-    avWeight_A <- mean(agents$A)
-    avWeight_G <- mean(agents$G)
-    avWeight_P <- mean(agents$P)
-    avWeight_D <- mean(agents$D)
+    #get the % of agents using each strat
+    stratTable <- table(agents$strat)
     
     #add these to resultsDF DF
-    resultsDF$A_mean[resultsDF$generation == g] <- avWeight_A
-    resultsDF$G_mean[resultsDF$generation == g] <- avWeight_G
-    resultsDF$P_mean[resultsDF$generation == g] <- avWeight_P
-    resultsDF$D_mean[resultsDF$generation == g] <- avWeight_D
+    resultsDF$population[resultsDF$generation == g & resultsDF$strat == "mean"] <- stratTable["1"]
+    resultsDF$population[resultsDF$generation == g & resultsDF$strat == "min"] <- stratTable["2"]
+
     
     g <- g+1
     
