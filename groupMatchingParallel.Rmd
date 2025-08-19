@@ -105,16 +105,16 @@ pursuitAmount <- 3
 reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 2
+modelLoops <- 10
 
 #number of generations
-generations <- 50
+generations <- 25
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 #set strength of selection
-selStrength <- 6
+selStrength <- 9
 
 #multiplier
 multiplier <- 1.2
@@ -411,7 +411,7 @@ reproduce <- function(agentDF, selStrength, n){
   #Association Value
 
   #change their association value to be within certain SD of original parent AV
-  association_values <- rnorm(1, mean = offspringDF$association, sd = .05)
+  association_values <- rnorm(n, mean = offspringDF$association, sd = .05)
   
   #don't let association value get above 1
   association_values <- ifelse(association_values > 1, 1 - (association_values - 1), association_values)
@@ -481,8 +481,8 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   stratTableOG <- table(agents$strat)
     
   #add these to resultsDF DF
-  resultsDF$population[resultsDF$generation == g & resultsDF$strat == "mean"] <- stratTableOG["1"]
-  resultsDF$population[resultsDF$generation == g & resultsDF$strat == "min"] <- stratTableOG["2"]
+  resultsDF$population[resultsDF$generation == 0 & resultsDF$strat == "mean"] <- stratTableOG["1"]
+  resultsDF$population[resultsDF$generation == 0 & resultsDF$strat == "min"] <- stratTableOG["2"]
   
   #set first generation
   g <- 1
@@ -518,7 +518,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       for (a in 1:nrow(agents)) {
         
         #calculate overlap scores between themselves and the other agents
-        overlap_scores <- overlap_mean(a, agents, overlap_matrices)
+        overlap_scores <- overlap_fun(a, agents, overlap_matrices)
         
         #calculate the reciprocity scores between themselves and the other agents
         reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
@@ -622,7 +622,7 @@ end.time <- Sys.time()
 
 print(end.time - start.time)
 
-write.csv(results, myPath)
+#write.csv(results, myPath)
       
 ```
 
@@ -635,10 +635,10 @@ write.csv(results, myPath)
 results_long <- pivot_longer(results, cols = c(3:6), names_to = "prim", values_to = "mean_true")
 
 #plot 
-p1 <- ggplot(data = results_long,
+p1 <- ggplot(data = results,
                aes(x = generation,
-                   y = mean_true,
-                   color = prim)) +
+                   y = population,
+                   color = strat)) +
   labs(x = "Generation",
        y = "% of agents using prim",
        color = "Prim") +

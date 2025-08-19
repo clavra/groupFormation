@@ -107,22 +107,22 @@ pursuitAmount <- 3
 reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 5
+modelLoops <- 1
 
 #number of generations
-generations <- 5
+generations <- 10
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
 
 #set strength of selection
-selStrength <- 15
+selStrength <- 9
 
 #multiplier
 multiplier <- 1.2
 
 #mutation probability that binary prim trait will turn on/off 
-flipProb <- 0.01
+flipProb <- 0
 
 myPath <- "C:/Users/clavra/Documents/groupFormation/resultsMain.csv"
 
@@ -406,7 +406,7 @@ reproduce <- function(agentDF, selStrength, n){
   #Association Value
 
   #change their association value to be within certain SD of original parent AV
-  association_values <- rnorm(1, mean = offspringDF$association, sd = .05)
+  association_values <- rnorm(n, mean = offspringDF$association, sd = .01)
   
   #don't let association value get above 1
   association_values <- ifelse(association_values > 1, 1 - (association_values - 1), association_values)
@@ -469,8 +469,8 @@ for(m in 1:modelLoops) {
   stratTableOG <- table(agents$strat)
     
   #add these to results DF
-  results$population[results$generation == g & results$loop == m & results$strat == "mean"] <- stratTableOG["1"]
-  results$population[results$generation == g & results$loop == m & results$strat == "min"] <- stratTableOG["2"]
+  results$population[results$generation == 0 & results$loop == m & results$strat == "mean"] <- stratTableOG["1"]
+  results$population[results$generation == 0 & results$loop == m & results$strat == "min"] <- stratTableOG["2"]
   
   
   #set first generation
@@ -586,6 +586,8 @@ for(m in 1:modelLoops) {
     
     #get the % of agents using each strat
     stratTable <- table(agents$strat)
+    
+    print(stratTable)
     
     #add these to results DF
     results$population[results$generation == g & results$loop == m & results$strat == "mean"] <- stratTable["1"]
