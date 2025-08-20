@@ -233,6 +233,8 @@ overlap_prims<- function(adjMat) {
     alliance <- rep(NA_real_, popSize)
     
     if (agent < popSize) {
+      
+      #only filling out top triangle (will fold later)
       for (i in (agent + 1):popSize) {
         exclude_indices <- c(agent, i)
         agent_filtered <- agent_row[-exclude_indices]
@@ -247,6 +249,8 @@ overlap_prims<- function(adjMat) {
     generalization <- rep(NA_real_, popSize)
     
     if (agent < popSize) {
+      
+      #only filling out top triangle (will fold later)
       for (j in (agent + 1):popSize) {
         exclude_indices <- c(agent, j)
         agent_filtered <- agent_col[-exclude_indices]
@@ -260,7 +264,10 @@ overlap_prims<- function(adjMat) {
     ## Displacement (row-col) ##
     displacement <- rep(NA_real_, popSize)
     
+    #filling out the whole thing (defense mat = transposition of displacement mat)
     for (j in 1:popSize) {
+      
+      #skip the agent's row
       if (j == agent) next
       exclude_indices <- c(agent, j)
       agent_filtered <- agent_row[-exclude_indices]
@@ -485,7 +492,7 @@ reproduce_asex <- function(agentDF, selStrength, n){
   for (a in 1:nrow(offspringDF)) {
     
     #change their association value to be within certain SD of original parent AV
-    association_value <- rnorm(1, mean = offspringDF$association[a], sd = .05)
+    association_value <- rnorm(n, mean = offspringDF$association[a], sd = .03)
     
     #don't let association value get above 1
     association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
