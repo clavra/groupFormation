@@ -343,6 +343,9 @@ reciprocity <- function(agent, adjMat){
   #nullify their own reciprocity score
   reciprocity_scores[agent] <- NA
   
+  #turn NaNs into 0 
+  reciprocity_scores[is.nan(reciprocity_scores)] <- 0
+  
   return(reciprocity_scores)
   
 }
@@ -513,6 +516,48 @@ reproduce_asex <- function(agentDF, selStrength, n){
 }
 
 
+append_shift <- function(lst, new_elem) {
+    lst <- c(lst[-1], list(new_elem))  # drop first, append new
+    return(lst)
+}
+
+
+#########
+
+positivePursuits <- which(godTiesMatrix == 1)
+
+obscuredPursuits <- sample(positivePursuits, obscurePercent * positivePursuits)
+
+noisyNewTies <- 
+
+
+
+#Updating Individual Pursuit Mats#
+updatePursuits <- function(agents, indivPursuitMats, indivTiesMatsList, godTiesMatrix){
+  
+  for(agent in 1:popSize){
+    
+    
+    
+    
+    
+    #exclude the data from 5 rounds ago held in their indiv ties mat
+    indivPursuitMats[[agent]] <- indivPursuitMats[[agent]] - indivTiesMatsList[[agent]][[1]]
+    
+    #add their new pursuits from this round (append first!!)
+    indivPursuitMats[[agent]] <- indivPursuitMats[[agent]] + indivTiesMatsList[[agent]][[6]]
+    
+    
+    
+  }
+  
+  
+  
+  
+}
+
+
+
 
 ```
 
@@ -553,36 +598,30 @@ for(m in 1:modelLoops) {
     
     #make association matrix which gives agents slightly different perceptions of each others' AVs
     associationMat <- makeAssociationMat(agents, AV_SD, popSize)
-  
-    #generate adjacency matrix (populate with 1)
-    pursuitMatrix <- matrix(1, nrow = popSize, ncol = popSize)
     
-    #store each reassessment period's cumulative adjacency matrix so that agents can reference the previous one when calculating their overlap/reciprocal scores
-    pursuitMatrix_list <- list(pursuitMatrix)
-    
-    #initialize list to store each reassessment's adjacency matrix as binary for that iteration so we can look at who was reciprocal at each reassessment period
-    tiesMatrix_list <- list(length = reassessments)
+    #initiate the 5 individual ties mats and store them in a list of lists
+    indivTiesMats <- replicate(popSize, simplify = F, 
+                                    replicate(5, matrix(0, nrow = popSize, ncol = popSize), 
+                                              simplify = FALSE))
   
+    #initiate the individual pursuit mats
+    indivPursuits <- replicate(popSize, matrix(0, nrow = popSize, ncol = popSize))
+    
     
     #for each reassessment... (agents look backwards so start from 2)
     for (t in 2:reassessments) {
       
-      #create the empty noncumulative adjacency matrix
-      tiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
-    
-      #Calculate overlap in previous adjacency matrix#
-      overlap_matrices <- overlap_prims(pursuitMatrix_list[[t-1]])
+      #create matrix that holds every definitive pursuit per round
+      godTiesMatrix <- matrix(0, nrow = popSize, ncol = popSize)
       
       #Each agent sends out pursuits#
-      
-      #for each agent...
       for (a in 1:nrow(agents)) {
         
         #calculate overlap scores between themselves and the other agents
-        overlap_scores <- overlap_mean(a, agents, overlap_matrices)
+        overlap_scores <- overlap(a, agents, indivPursuits[[a]])
         
         #calculate the reciprocity scores between themselves and the other agents
-        reciprocity_scores <- reciprocity(a, pursuitMatrix_list[[t - 1]])
+        reciprocity_scores <- reciprocity(a, indivPursuits[[a]])
         
         #calculate the association values
         association_values <- associationMat[a,]
@@ -593,24 +632,27 @@ for(m in 1:modelLoops) {
         #sort by product in descending order and get the indices of the top value agents
         pursuit_indices <- order(-pursuit_scores)[1:pursuitAmount]
         
-        #add 1 to their pursuits in the cumulative the adjacency matrix
-        pursuitMatrix[a, pursuit_indices] <- pursuitMatrix[a, pursuit_indices] + 1
-        
-        #and to the individual one
-        tiesMatrix[a, pursuit_indices] <- 1
-        
-        
+        #update the overall ties matrix which shows each agent's pursuit for this round
+        godTiesMatrix[a, pursuit_indices] <- 1
+    
       }
       
-      #add the pursuitMatrix to the matrix list
-      pursuitMatrix_list[[t]] <- pursuitMatrix
+    
+      #update each agent's indiv pursuit matrix (which they'll use to calculate overlap in next round)
       
-      #add the non cumulative matrix to its list
-      tiesMatrix_list[[t]] <- tiesMatrix
+      
+      
+      
+      #add their current pursuits to their individual ties matrix list, shifting all left
+      append_shift(indiv_ties_mats[[a]], )
+      
+      
+      #for each agent, turn 75% of the god ties matrix into 0s and then add those 1s
+      
+      
       
       #make matrix that has only reciprocated ties
-      friendsMatrix <- tiesMatrix * t(tiesMatrix)
-      
+      friendsMatrix <- godTiesMatrix * t(godTiesMatrix)
       
       #Game#
       
