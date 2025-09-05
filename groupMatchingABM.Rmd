@@ -396,79 +396,6 @@ payoff <- function(gameMatrix, gamers, agentDF){
 
 #Reproduce#
 
-#trying out different option for reproduction (sexual rep)
-
-# # SEXUAL REPRODUCTION #
-# reproduce_sex <- function(agentDF, selStrength, n){
-#   
-#   #rescale payoffs to be between 0-1
-#   agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
-#   agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
-#   
-#   #add constant to prob weight to fix strength of selection
-#   agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
-#   
-#   #make empty offspring dataframe
-#   offspringDF <- agentDF
-#   offspringDF[] <- NA
-#   
-#   for(i in 1:nrow(offspringDF)){
-#     
-#     #sample 2 agents to make love with prob based on payoff
-#     parents <- agentDF[sample(1:nrow(agentDF), 2, replace = F, prob = agentDF$payoff),]
-#     
-#     #inherit each weight trait from either parent
-#     offspringDF$A[i] <- sample(parents$A,1,replace = T)
-#     offspringDF$G[i] <- sample(parents$G,1,replace = T)
-#     offspringDF$P[i] <- sample(parents$P,1,replace = T)
-#     offspringDF$D[i] <- sample(parents$D,1,replace = T)
-#     
-#     #idk about association value, just gonna do the same for now
-#     offspringDF$association[i] <- sample(parents$association,1,replace = T)
-#     
-#   }
-#   
-#   
-#   #Reset payoff vec
-#   offspringDF$payoff <- 0
-#   
-#   
-#   #Mutation:
-#   
-#   #for each agent...
-#   for (a in 1:nrow(offspringDF)) {
-#     
-#     #change their association value to be within certain SD of original parent AV
-#     association_value <- rnorm(1, mean = offspringDF$association[a], sd = .05)
-#     
-#     #don't let association value get above 1
-#     association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
-#     
-#     #don't let association value get below 0
-#     association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
-#     
-#     #assign the new mutated association value
-#     offspringDF$association[a] <- association_value
-#     
-#     #mutate the weight of each primitive
-#     offspringDF$A[a] <- rnorm(1, mean = offspringDF$A[a], sd = .05)
-#     offspringDF$G[a] <- rnorm(1, mean = offspringDF$G[a], sd = .05)
-#     offspringDF$P[a] <- rnorm(1, mean = offspringDF$P[a], sd = .05)
-#     offspringDF$D[a] <- rnorm(1, mean = offspringDF$D[a], sd = .05)
-#     
-#     #don't let the weight be negative
-#     offspringDF$A[a] <- ifelse(offspringDF$A[a] < 0, 0, offspringDF$A[a])
-#     offspringDF$G[a] <- ifelse(offspringDF$G[a] < 0, 0, offspringDF$G[a])
-#     offspringDF$P[a] <- ifelse(offspringDF$P[a] < 0, 0, offspringDF$P[a])
-#     offspringDF$D[a] <- ifelse(offspringDF$D[a] < 0, 0, offspringDF$D[a])
-#     
-#   }
-#   
-#   return(offspringDF)
-#   
-# }
-
-
 # ASEXUAL REPRODUCTION #
 #agents reproduce using roulette wheel selection, higher payoff = better reproductive success
 reproduce_asex <- function(agentDF, selStrength, n){
@@ -524,36 +451,70 @@ append_shift <- function(lst, new_elem) {
 
 #########
 
-positivePursuits <- which(godTiesMatrix == 1)
+#get the flat indices of the agent's rows and cols in matrix
+getAgentIxs <- function(agent, matrix){
+  
+  #get flat inds of agent's col
+  startC <- (agent-1)*nrow(matrix) + 1
+  endC <- startC + (nrow(matrix)-1)
+  
+  colIndices <- startC:endC
+  
+  #get flat inds of agent's row
+  rowIndices <- seq(from = agent, by = nrow(matrix), length.out = nrow(matrix))
+  
+  allIxs <- c(colIndices, rowIndices)
+  
+  return(allIxs)
+  
+}
 
-obscuredPursuits <- sample(positivePursuits, obscurePercent * positivePursuits)
 
-noisyNewTies <- 
+
+updateTiesMats <- function(agent, indiv)
+
+
+
+#Making Noisy Ties Mat#
+
+  
+makeNoisyNewTies <- function(agent, godTiesMatrix, obscurePercent) {
+    
+    #make agent's ties matrix based on overall ties mat for this round
+    noisyNewTies <- godTiesMatrix
+    
+    #get the indicies of the agent's direct pursuits for us to ignore when noisifying
+    agentIxs <- getAgentIxs(agent, godTiesMatrix)
+    
+    #get all indices where there is a 1
+    positivePursuits <- which(godTiesMatrix == 1, arr.ind = F)
+    
+    #remove the 1 indicies that are the agent's direct pursuits
+    indPositivePursuits <- positivePursuits[!positivePursuits %in% agentIxs]
+    
+    #get the indicies of the 75% of indirect 1s that we are gonna turn into 0s
+    obscuredPursuits <- sample(indPositivePursuits, obscurePercent * length(indPositivePursuits), replace = F)
+    
+    #turn those 1s into 0s
+    noisyNewTies[obscuredPursuits] <- 0
+    
+    return(noisyNewTies)
+    
+}
 
 
 
 #Updating Individual Pursuit Mats#
-updatePursuits <- function(agents, indivPursuitMats, indivTiesMatsList, godTiesMatrix){
+updatePursuitMat <- function(agent, indivPursuitMats, indivTiesMatsList, newTies){
   
-  for(agent in 1:popSize){
-    
-    
-    
-    
-    
     #exclude the data from 5 rounds ago held in their indiv ties mat
     indivPursuitMats[[agent]] <- indivPursuitMats[[agent]] - indivTiesMatsList[[agent]][[1]]
     
-    #add their new pursuits from this round (append first!!)
-    indivPursuitMats[[agent]] <- indivPursuitMats[[agent]] + indivTiesMatsList[[agent]][[6]]
+    #add the new noisy ties 
+    indivPursuitMats[[agent]] <- indivPursuitMats[[agent]] + noisyNewTies
     
+    return(indivPursuitMats)
     
-    
-  }
-  
-  
-  
-  
 }
 
 
@@ -638,6 +599,24 @@ for(m in 1:modelLoops) {
       }
       
     
+      #Updating pursuit mat to be used in next round
+      
+      #append noisy ties from godTiesMat to each agent's ties matrices list, deleting the 5th last one
+      
+      for(a in 1:popSize){
+        
+        #create new noisy ties from past round
+        newTies <- makeNoisyNewTies(a, godTiesMatrix, obscurePercent)
+        
+        #update the pursuit mat they will use for the next round
+        updatePursuitMat(a, indivPursuits[[a]], )
+        
+        
+      }
+      
+      
+      
+      
       #update each agent's indiv pursuit matrix (which they'll use to calculate overlap in next round)
       
       
