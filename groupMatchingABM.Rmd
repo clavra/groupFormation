@@ -219,8 +219,9 @@ overlap <- function(agent, agentDF, adjMat){
       generalization = NA
     )
     
-    if(sum(agentDF[agent,c("A","G","P","D")]) == 0)
-      return(rep(NA, popSize))
+    if(all(agentDF[agent, c("A", "G", "P", "D")] == 0, na.rm = TRUE))
+  return(rep(NA, popSize))
+
     
     #Alliance# (row-row)
     
@@ -332,14 +333,18 @@ overlap <- function(agent, agentDF, adjMat){
     selected_scores <- do.call(rbind, scores)
     
     #if we doing mean
-    #overlap_scores <- colMeans(selected_scores, na.rm = TRUE)
+    overlap_scores <- colMeans(selected_scores, na.rm = TRUE)
     
     #if we doing min
-    overlap_scores <- apply(selected_scores, 2, FUN = min)
+    #overlap_scores <- apply(selected_scores, 2, FUN = min, na.rm = T)
     
+    #ignore of self
     overlap_scores[agent] <- NA
     
-    return(overlap_scores)
+    #normalize (?)
+    overlap_scores_norm <- overlap_scores + (1-max(overlap_scores, na.rm = T))
+    
+    return(overlap_scores_norm)
   
   
 }
@@ -537,7 +542,8 @@ results <- data.frame("loop" = rep(1:modelLoops, each = generations+1),
                       "A_mean" = NA,
                       "G_mean" = NA,
                       "P_mean" = NA,
-                      "D_mean" = NA
+                      "D_mean" = NA,
+                      "amount" = NA
                       )
 
 
@@ -552,7 +558,7 @@ for(m in 1:modelLoops) {
   
   #add the initial prim means to generation 0 in results
   results[results$loop == m & results$generation == 0, c(3:6)] <- colMeans(agents[2:5])
-  
+  results$amount[results$generation == 0 & results$loop == m] <- mean(rowSums(agents[2:5]))
   
   #set first generation
   g <- 1
@@ -687,8 +693,10 @@ for(m in 1:modelLoops) {
     results$G_mean[results$generation == g & results$loop == m] <- avWeight_G
     results$P_mean[results$generation == g & results$loop == m] <- avWeight_P
     results$D_mean[results$generation == g & results$loop == m] <- avWeight_D
+    
+    results$amount[results$generation == g & results$loop == m] <- mean(rowSums(agents[2:5]))
 
-    print(results[results$generation == g & results$loop == m, 3:6])
+    print(results[results$generation == g & results$loop == m, 3:7])
     
     g <- g+1
     
