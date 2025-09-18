@@ -566,7 +566,8 @@ results <- data.frame("loop" = rep(1:modelLoops, each = generations+1),
                       "G_mean" = NA,
                       "P_mean" = NA,
                       "D_mean" = NA,
-                      "amount" = NA
+                      "amount" = NA,
+                      "cliques" = NA
                       )
 
 
