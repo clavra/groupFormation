@@ -110,7 +110,7 @@ reassessments <- 200
 modelLoops <- 1
 
 #number of generations
-generations <- 25
+generations <- 35
 
 #SD of association value of agents in the eyes of other agents
 AV_SD <- 0.05
@@ -130,7 +130,7 @@ obscurePercent <- 0.60
 #number of days back agents use to make ties calculations
 memorySize <- 25
 
-myPath <- "G:/My Drive/groupFormationResults/noisy.csv"
+myPath <- "G:/My Drive/groupFormationResults/noisyLong.csv"
 
 ```
 
@@ -569,17 +569,6 @@ results <- data.frame("loop" = rep(1:modelLoops, each = generations+1),
                       "amount" = NA
                       )
 
-resultsAdd <- data.frame("loop" = rep(1:modelLoops, each = 10),
-                      "generation" = rep(26:generations),
-                      "A_mean" = NA,
-                      "G_mean" = NA,
-                      "P_mean" = NA,
-                      "D_mean" = NA,
-                      "amount" = NA
-                      )
-
-
-results <- rbind(results, resultsAdd)
 
 
 for(m in 1:modelLoops) {
@@ -726,6 +715,10 @@ for(m in 1:modelLoops) {
     results$D_mean[results$generation == g & results$loop == m] <- avWeight_D
     
     results$amount[results$generation == g & results$loop == m] <- mean(rowSums(agents[2:5]))
+    
+    #get network data
+    networkGraph <- graph_from_adjacency_matrix(friendsMatrix, mode = "undirected")
+    results$cliques[results$generation == g & results$loop == m] <- count_max_cliques(networkGraph, min = 4, max = 4)
 
     print(results[results$generation == g & results$loop == m, 3:7])
     
@@ -739,27 +732,11 @@ for(m in 1:modelLoops) {
 }
   
 
-#remember that ties mat has all pursuits, not just reciprocal
-
-### quick graph 
-lastGraph <- graph_from_adjacency_matrix(friendsMatrix, mode = "undirected")
-
-plot(lastGraph, 
-     layout = layout.fruchterman.reingold,
-     vertex.label = NA,
-     vertex.size = 9
-     )
-
-
-
-count_max_cliques(lastGraph, min = 4, max = 4)
-
-
 end.time <- Sys.time()
 
 print(end.time - start.time)
 
-write.csv(results, myPath)
+#write.csv(results, myPath)
       
 ```
 
@@ -767,6 +744,54 @@ write.csv(results, myPath)
 ### Analysis
 
 ```{r analysis}
+
+
+resultsLong <- pivot_longer(data = results,
+                            cols = ends_with("_mean"),
+                            names_to = "prim",
+                            names_pattern = "(.*)_mean",
+                            values_to = "mean")
+
+
+#ggplot
+p1 <- ggplot(data = results,
+             aes(x = generation,
+                 y = amount)) +
+  labs(x = "generation",
+       y = "average number of prims") +
+  geom_smooth() +
+  theme_minimal()
+
+p2 <- ggplot(data = results,
+             aes(x = generation,
+                 y = amount)) +
+  labs(x = "generation",
+       y = "average number of prims") +
+  geom_line() +
+  facet_wrap(~loop)+
+  theme_minimal()
+
+
+p3 <- ggplot(data = resultsLong,
+             aes(x = generation,
+                 y = mean,
+                 color = prim)) +
+  labs(x = "generation",
+       y = "average % of agents using prim") +
+  geom_smooth(alpha = 0.2) +
+  theme_minimal()
+
+
+p4 <- ggplot(data = resultsLong,
+             aes(x = generation,
+                 y = mean,
+                 color = prim)) +
+  labs(x = "generation",
+       y = "average % of agents using prim") +
+  geom_line() +
+  facet_wrap(~loop)+
+  theme_minimal()
+
 
 ### quick graph 
 lastGraph <- graph_from_adjacency_matrix(friendsMatrix, mode = "undirected")
@@ -887,6 +912,7 @@ for(r in 1:length(friendsMatPlots)) {
   V(friendsMatPlots[[r]])$strat <- parents$strat
  
 }
+
 
 
 ```
