@@ -1,0 +1,691 @@
+---
+title: "realCoop"
+author: "Clara Lavrador"
+date: "2026-01-13"
+output: html_document
+---
+
+## Model Overview
+
+#Life Cycle
+
+1. Cooperate
+2. Pursue
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages}
+
+library(dplyr)
+library(igraph)
+
+```
+
+
+#Parameters
+```{r parameters}
+
+#number of agents
+popSize = 200
+
+#number of pursuits agents can make
+numPursuits = 7
+
+#number of rounds
+rounds = 2000
+
+#probability of cooperating with group member
+probCoopGroup = 0.5
+
+#probability of cooperating with nongroup member
+probCoopNon = 0.1
+
+#number of generations
+generations = 1
+
+#number of loops
+modelLoops = 5
+
+multiplier = 1.4
+
+```
+
+#Functions
+```{r functions}
+
+#Agent generate function#
+
+agentGenerate <- function(n){
+  
+  #agent IDs
+  id <- c(1:n)
+  
+  #association value
+  av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+  av <- av/100
+  
+  #strats
+  alliance <- rbinom(n, 1, 0.5)
+  generalization <- rbinom(n, 1, 0.5)
+  displacement <- rbinom(n, 1, 0.5)
+  defense <- rbinom(n, 1, 0.5)
+  
+  # alliance <- c(rep(c(0,1), each = popSize/2))
+  # generalization <- c(rep(c(0,1), each = popSize/2))
+  # displacement <- c(rep(c(0,1), each = popSize/2))
+  # defense <- c(rep(c(0,1), each = popSize/2))
+
+  payoff <- 0
+  
+  agents <- data.frame(id, av, alliance, generalization, displacement, defense, payoff)
+  
+  return(agents)
+  
+}
+
+
+#Association Matrix#
+#make association mat so that there is noise in how AVs are perceived by others
+
+makeAssociationMat <- function(agentsDF, sd){
+  
+  associationMat <- matrix(, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agentsDF)){
+    
+    associationMat[,a] <-  rnorm(popSize, mean = agentsDF$av[a], sd = sd)
+    
+  }
+  
+  diag(associationMat) <- NA
+  
+  associationMat <- associationMat/100
+  
+  return(associationMat)
+  
+}
+
+
+#Reciprocity Function#
+reciprocity <- function(agent, adjMat){
+  
+  #pull agent's column which represents their received pursuits
+  received <- adjMat[,agent]
+  
+  #pull agent's row which represents their sent pursuits
+  sent <- adjMat[agent,]
+    
+  #calculate proportions of pursuits which were received
+  reciprocity_scores <- (received / (received + sent))
+  
+  #nullify their own reciprocity score
+  reciprocity_scores[agent] <- NA
+  
+  return(reciprocity_scores)
+  
+}
+
+
+#Bayes Rule#
+posteriorGroup <- function(prior, probCoopGroup, probCoopNon, coop){
+  
+  if(coop == 1){
+    
+    num <- prior * probCoopGroup
+    den <- num + (1-prior)*(probCoopNon)
+    
+  } else {
+    
+    num <- prior * (1-probCoopGroup)
+    den <- num + (1-prior)*(1-probCoopNon)
+    
+  }
+  
+  posterior <- num/den
+  
+  return(posterior)
+  
+}
+
+
+#Transitive Inference#
+
+transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, groupMat){
+  
+  #get the prims they use
+  primStrat <- names(agentsDF)[3:6][agentsDF[agent,3:6] == 1]
+  
+  #pull the indices of the agents that the focal agent pursued
+  pursuees <- which(pursuitMatrix[agent, ] == 1, arr.ind = T)   
+  
+  #vector of pursuees that focal agent cooperated with
+  sentCoops <- pursuees[cooperationMatrix[agent, pursuees] == 1]
+  
+  #vector of pursuees that cooperated with focal agent 
+  recCoops <- pursuees[cooperationMatrix[pursuees, agent] == 1]
+  
+  #basically we are gonna make a list of agents that A can "see" in accordance with their strat
+  posUpdate <- c()
+  negUpdate <- c()
+  
+  #Alliance#
+  if("alliance" %in% primStrat){
+    
+    #get the agents that also cooperated with agent's sent cooperations
+    posUpdate <- c(posUpdate,unname(which(coopMat[,sentCoops, drop = FALSE] == 1, arr.ind = T)[,"row"]))
+    
+    #get the agents that did not cooperate with agent's sent cooperations
+    negUpdate <- c(negUpdate,unname(which(coopMat[,sentCoops, drop = FALSE] == 0, arr.ind = T)[,"row"]))
+    
+  }
+  
+  #Displacement#
+  if("displacement" %in% primStrat){
+    
+    #get the agents that agent's sent cooperations cooperated with 
+    posUpdate <- c(posUpdate,unname(which(coopMat[sentCoops, , drop = FALSE] == 1, arr.ind = T)[,"col"]))
+    
+    #get the agents that agent's sent cooperations did not cooperate with 
+    negUpdate <- c(negUpdate,unname(which(coopMat[sentCoops, , drop = FALSE] == 0, arr.ind = T)[,"col"]))
+    
+  } 
+  
+  #Defense#  
+  if("defense" %in% primStrat){
+    
+    #get the agents that cooperated with agent's received cooperators 
+    posUpdate <- c(posUpdate,unname(which(coopMat[, recCoops, drop = F] == 1, arr.ind = T)[,"row"]))
+    
+    #get the agents that did not cooperate with agent's received cooperators 
+    negUpdate <- c(negUpdate,unname(which(coopMat[, recCoops, drop = F] == 0, arr.ind = T)[,"row"]))
+    
+  }
+    
+  #Generalization#
+  if("generalization" %in% primStrat){
+    
+    #get the agents that the agent's received cooperators cooperated with 
+    posUpdate <- c(posUpdate,unname(which(coopMat[recCoops, ,drop = F] == 1, arr.ind = T)[,"col"]))
+    
+    #get the agents that the agent's received cooperators did not cooperate with 
+    negUpdate <- c(negUpdate,unname(which(coopMat[recCoops, ,drop = F] == 0, arr.ind = T)[,"col"]))
+    
+  }
+  
+  #remove any transitive inferences that involve self
+  posUpdate <- posUpdate[posUpdate != agent]
+  negUpdate <- negUpdate[negUpdate != agent]
+  
+  #Go through each one and update groupishness
+  for(i in 1:length(posUpdate)) {
+    
+    #pull t's name
+    agentName <- posUpdate[i]
+    
+    #get prior groupishness between A and i
+    prior <- groupMat[agent, agentName]
+    
+    #update their groupishness based on this transitive inference
+    posterior <- posteriorGroup(prior, probCoopGroup, probCoopNon, 1)
+    
+    #update groupish mat with new likelihood
+    groupMat[agent, agentName] <- posterior
+    
+  }
+  
+  #Go through each one and update groupishness
+  for(i in 1:length(negUpdate)) {
+    
+    #pull t's name
+    agentName <- negUpdate[i]
+    
+    #get prior groupishness between A and i
+    prior <- groupMat[agent, agentName]
+    
+    #update their groupishness based on this transitive inference
+    posterior <- posteriorGroup(prior, probCoopGroup, probCoopNon, 0)
+    
+    #update groupish mat with new likelihood
+    groupMat[agent, agentName] <- posterior
+    
+  }
+  
+  return(groupMat)
+  
+}
+
+
+#Contributions#
+
+payoff <- function(gameMatrix, gamers, agentDF){
+  
+  #start the sum
+  contributionTot <- 0
+  
+  #for each agent...
+  for(agent in gamers){
+    
+    #their max contribution is their association value
+    maxContribution <- agentDF$av[row.names(agentDF) == agent] * 100
+    
+    #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
+    proportionTied <- if (nrow(gameMatrix) > 1) sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1) else 0
+    
+    
+    #calculate their contribution 
+    contribution <- maxContribution * proportionTied
+    
+    #add their total contribution to those of the other agents
+    contributionTot <- contributionTot + contribution
+    
+    #add their noncontributed pay to their corresponding slot in payoff vector (what they keep)
+    agentDF$payoff[as.numeric(agent)] <- agentDF$payoff[as.numeric(agent)] + (maxContribution - contribution)
+    
+  }
+  
+  contributionTot <- contributionTot * multiplier
+  
+  #divide the pooled contributions by the number of agents in the group
+  basePay <- contributionTot/nrow(gameMatrix)
+  
+  agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
+  
+  #return the payoff vector
+  return(agentDF)
+  
+}
+
+
+
+
+
+
+
+```
+
+#Life Cycle
+```{r lifeCycle}
+
+
+
+#analysis dataframe
+results <- data.frame(
+  "loop" = NA,
+ # "generation" = rep(0:generations),
+  "totPrims" = NA,
+  "meanPay" = NA,
+  "sdPay" = NA,
+  "meanTies" = NA,
+  "sdTies" = NA
+)
+
+
+
+# START #
+
+for(m in 1:modelLoops) {
+  
+  print(m)
+  
+  #birth the agents
+  agents <- agentGenerate(popSize)
+  
+  #generate association mat so agents see each other's av a bit differently
+  associationMat <- makeAssociationMat(agents, 0.15)
+  
+  #pursuit matrix list of noncumulative interactions
+  pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+  pursuitMatList <- list(pursuitMat)
+  
+  #matrix that holds each agent's perceived groupishness with each other agent
+  groupishMat <- matrix(numPursuits / popSize, nrow = popSize, ncol = popSize)
+  diag(groupishMat) <- NA
+  
+  #matrix that holds cooperations to be backreferenced for previous rounds
+  coopMat <- matrix(1, nrow = popSize, ncol = popSize)
+  coopMatList <- list(coopMat)
+  
+  # ROUNDS #
+  
+  for (r in 2:rounds) {
+    
+    # PURSUE #
+    
+    #make the empty new pursuit matrix
+    pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+    
+    #each agent chooses k other agents to pursue
+    for (a in 1:popSize) {
+      
+      #agent updates the posterior probabilities of group membership with each other agent
+      for (b in 1:popSize) {
+        
+        #skip self
+        
+        if (b == a)
+          next
+        
+        #get whether b cooperated with agent last round
+        coopBin <- coopMatList[[r - 1]][b, a]
+        
+        #get the prior
+        priorB <- groupishMat[a, b]
+        
+        #calculate posterior probability
+        posteriorB <- posteriorGroup(priorB, probCoopGroup, probCoopNon, coopBin)
+        
+        #update groupish mat with new likelihood
+        groupishMat[a, b] <- posteriorB
+        
+      }
+      
+      #pull others' groupishness values
+      groupVals <- groupishMat[a, ]
+      
+      #pull others' association values from the perspective of a
+      assocVals <- associationMat[a, ]
+      
+      #calculate the pursuit scores by combining association and reciprocity
+      pursuitScores <- assocVals * groupVals
+      
+      #nullify their own
+      pursuitScores[a] <- NA
+      
+      #order from highest to lowest scores
+      pursuit_indices <- order(-pursuitScores)[1:numPursuits]
+      
+      #add 1 to their pursuits in the pursuit matrix
+      pursuitMat[a, pursuit_indices] <- 1
+      
+    }
+    
+    #bind the pursuit mat to the list
+    pursuitMatList[[r]] <- pursuitMat
+    
+    # TRANSITIVE INFERENCES #
+    
+    for (a in 1:popSize) {
+      
+      #update the groupishness of their third party relationships based in accordance with their prim strats
+      groupishMat <- transUpdate(a, agents, pursuitMatList[[r - 1]], coopMatList[[r -
+                                                                                    1]], groupishMat)
+      
+    }
+    
+    # COOPERATE #
+    
+    #convert pursuit mat into the coop probabilities
+    coopProbs <- pursuitMat
+    coopProbs <- ifelse(coopProbs == 0, probCoopNon, probCoopGroup)
+    
+    #now agents decide whether to cooperate with each other agent
+    for (a in 1:popSize) {
+      
+      #loop through other agents and have focal agent decide whether to cooperate with them
+      for (b in 1:popSize) {
+        
+        #skip self
+        if (b == a)
+          
+          next
+        
+        #pull the prob of cooperating
+        p <- coopProbs[a, b]
+        
+        #make decision to cooperate or not
+        decision <- rbinom(1, 1, prob = p)
+        
+        #add the decision to the cooperation matrix
+        coopMat[a, b] <- decision
+        
+      }
+      
+    }
+    
+    #append the coop mat to the list
+    coopMatList[[r]] <- coopMat
+    
+    
+    # GAME #
+    
+    #get matrix of only reciprocated pursuits
+    friendsMatrix <- pursuitMat * t(pursuitMat)
+    
+    #randomly pick one agent to play game
+    gamer <- sample(popSize, 1)
+    
+    for (i in sample(1:popSize)) {
+      #randomly pick one agent to play game
+      gamer <- i
+      
+      #pull indices of agents' reciprocated ties
+      gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+      
+      #add the gamer to the group indices
+      gamerGroup <- c(gamerGroup, gamer)
+      
+      #subset the friends matrix to include only those in group
+      gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+      
+      #change the names back to original indices
+      rownames(gamersMat) <- gamerGroup
+      colnames(gamersMat) <- gamerGroup
+      
+      #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
+      #Game happens only if all agents agree
+      if (nrow(gamersMat) == (numPursuits + 1) &
+          prod(rbinom(nrow(gamersMat), 1, rowSums(gamersMat) / nrow(gamersMat))) == 1) {
+          
+        #calculate the payoff each agent will receive
+        agents <- payoff(gamersMat, gamerGroup, agents)
+        
+      }
+      
+    }
+    
+    #payoffResults <- agents %>%
+      
+    
+  }
+  
+  # Reproduce #
+
+#append the agent's number of reciprocated ties at the last round
+agents$tiesFinal <- rowSums(friendsMatrix)
+
+#sum prims
+agents$totPrims <- rowSums(agents[,3:6])
+
+resultsBind <- agents %>%
+  group_by(totPrims) %>%
+  summarise(meanTies = mean(tiesFinal),
+            sdTies = sd(tiesFinal),
+            meanPay = mean(payoff),
+            sdPay = sd(payoff))
+
+resultsBind$loop = m
+
+results <- rbind(results, resultsBind)
+
+}
+
+```
+
+#Analysis
+```{r analysis}
+
+results <- results[-1,]
+
+analysis <- results %>%
+  group_by(totPrims) %>%
+  summarise(meanTies = mean(meanTies),
+            meanPay = mean(meanPay, na.rm = T)
+           )
+
+
+#plot of payoff by tot prims
+
+
+
+
+
+
+#Pursuits#
+
+#convert pursuitMats to include only reciprocated pursuits
+recipMats <- lapply(pursuitMatList, function(mat) mat * t(mat))
+
+#append the agent's number of reciprocated ties at the last round
+agents$tiesFinal <- rowSums(recipMats[[rounds]])
+
+#sum prims
+agents$totPrims <- rowSums(agents[,3:6])
+
+#get correlation between number of ties and number of prims
+cor(agents$ties, agents$totPrims)
+
+
+#Cooperations#
+
+#make df with the coops sent and received
+analDF <- data.frame(round = rep(1:rounds, each = popSize),
+                     id = rep(1:popSize, rounds),
+                     cRec = NA,
+                     cSent = NA)
+
+#compute the sents & recs for each round
+sentList <- lapply(coopMatList, rowSums)
+recList  <- lapply(coopMatList, colSums)
+
+#bind it to the analysis df
+analDF$cSent <- unlist(sentList)
+analDF$cRec  <- unlist(recList)
+
+#bind the agents' strat
+analDF <- merge(analDF, agents, by = "id", all.x = T)
+
+#fix the ordering
+analDF <- analDF %>% arrange(round, id)
+
+#make the ratio of sent to received
+analDF$ratio <- analDF$cRec/analDF$cSent
+
+#turn NaNs into 0
+analDF$ratio[is.nan(analDF$ratio)] <- 0
+
+analDF %>%
+  group_by(totPrims) %>%
+  summarise(meanRec = mean(cRec),
+            sdRec = sd(cRec),
+            meanSent = mean(cSent),
+            sdSent = sd(cSent),
+            meanRatio = mean(ratio),
+            sdRatio = sd(ratio),
+            meanTies = mean(tiesFinal),
+            sdTies = sd(tiesFinal),
+            meanPayoff = mean(payoff),
+            sdPayoff = sd(payoff))
+
+
+```
+
+```{r network}
+
+lastPlot <- graph_from_adjacency_matrix(recipMats[[rounds]])
+
+agents$color <- NA
+
+agents$color[agents$totPrims == 0] <- "red"
+agents$color[agents$totPrims == 1] <- "orange"
+agents$color[agents$totPrims == 2] <- "yellow"
+agents$color[agents$totPrims == 3] <- "lightgreen"
+agents$color[agents$totPrims == 4] <- "darkgreen"
+
+V(lastPlot)$color <- agents$color
+V(lastPlot)$totPrims <- agents$totPrims
+
+
+plot(lastPlot,
+     layout = layout_with_kk,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.mode = "-")
+
+
+
+# Number of Cliques #
+
+cliquesList <- max_cliques(lastPlot, min = 3)
+
+groupSizes <- lengths(cliquesList)
+
+groupStrats <- lapply(cliquesList, function(vs) {
+  V(lastPlot)[vs]$totPrims
+})
+
+data.frame(
+  group_id = seq_along(cliquesList),
+  size = lengths(cliquesList),
+  strategies = I(groupStrats)
+)
+
+# Ego Density #
+
+#get the density of each agent's ego network
+ego_dens <- sapply(V(lastPlot), function(v) {
+  ego_g <- induced_subgraph(lastPlot, c(v, neighbors(lastPlot, v)))
+  edge_density(ego_g)
+})
+
+# get the number of edges in each agent's ego network
+ego_edges <- sapply(V(lastPlot), function(v) {
+  ego_g <- induced_subgraph(lastPlot, c(v, neighbors(lastPlot, v)))
+  ecount(ego_g)
+})
+
+#bind to agent df
+agents$egoDensity <- ego_dens
+agents$egoDensity[is.nan(agents$egoDensity)] <- 0
+
+#means by prim tot
+agents %>%
+  group_by(totPrims) %>%
+  summarise(meanDensity = mean(egoDensity),
+            sdDensity = sd(egoDensity))
+
+
+#get the degree for each agent
+deg <- degree(lastPlot)
+
+clust <- transitivity(lastPlot, type = "local")
+
+clust[is.na(clust)] <- 0
+
+groupStrength <- deg * clust
+
+agents$groupStrength <- groupStrength
+
+#means by prim tot
+agents %>%
+  group_by(totPrims) %>%
+  summarise(meanGroupS = mean(groupStrength),
+            sdGroupS = sd(groupStrength))
+
+
+
+
+
+
+
+
+```
+
