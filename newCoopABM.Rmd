@@ -39,10 +39,10 @@ numPursuits = 7
 rounds = 1000
 
 #probability of cooperating with group member
-probCoopGroup = 0.6
+probCoopGroup = 0.2
 
 #probability of cooperating with nongroup member
-probCoopNon = 0.4
+probCoopNon = 0.1
 
 #number of generations
 generations = 15
@@ -657,8 +657,6 @@ for (m in 1:modelLoops) {
     
     agentsPrevious <- agents
     
-    print(resultsList[[counter]])
-    
     # Reproduce #
     agents <- reproduce(agents, selStrength, popSize)
     
@@ -669,6 +667,7 @@ for (m in 1:modelLoops) {
 
 results <- bind_rows(resultsList)
 
+write.csv(results, "results_mar_7.csv")
 ```
 
 
