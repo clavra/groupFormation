@@ -39,10 +39,10 @@ numPursuits = 7
 rounds = 1000
 
 #probability of cooperating with group member
-probCoopGroup = 0.2
+probCoopGroup = 0.6
 
 #probability of cooperating with nongroup member
-probCoopNon = 0.1
+probCoopNon = 0.3
 
 #number of generations
 generations = 15
@@ -56,7 +56,7 @@ multiplier = 1.4
 selStrength = 10
 
 #probability of a strat flipping
-flipProb = 0.01
+flipProb = 0
 
 #prim combo abbreviations 
 #list the prim combo abbreviations in order to append later
@@ -463,26 +463,27 @@ for (m in 1:modelLoops) {
   #birth the agents
   agents <- agentGenerate(popSize)
   
-  #generate association mat so agents see each other's av a bit differently
-  associationMat <- makeAssociationMat(agents, 0.15)
-  
-  #pursuit matrix list of noncumulative interactions
-  pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
-  pursuitMatList <- list(pursuitMat)
-  
-  #matrix that holds each agent's perceived groupishness with each other agent
-  groupishMat <- matrix(numPursuits / popSize, nrow = popSize, ncol = popSize)
-  diag(groupishMat) <- NA
-  
-  #matrix that holds cooperations to be backreferenced for previous rounds
-  coopMat <- matrix(0, nrow = popSize, ncol = popSize)
-  coopMatList <- list(coopMat)
-  
   # GENERATION #
   
   for (g in 1:generations) {
     
     print(g)
+    
+    #generate association mat so agents see each other's av a bit differently
+    associationMat <- makeAssociationMat(agents, 0.15)
+    
+    #matrix that holds each agent's perceived groupishness with each other agent
+    groupishMat <- matrix(numPursuits / popSize, nrow = popSize, ncol = popSize)
+    diag(groupishMat) <- NA
+  
+    #pursuit matrix list of noncumulative interactions
+    pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+    pursuitMatList <- list(pursuitMat)
+    
+    #matrix that holds cooperations to be backreferenced for previous rounds
+    coopMat <- matrix(0, nrow = popSize, ncol = popSize)
+    coopMatList <- list(coopMat)
+
     
     # ROUNDS #
     
@@ -749,6 +750,7 @@ analDF %>%
             sdPayoff = sd(payoff))
 
 
+
 ```
 
 #Network#
@@ -756,23 +758,42 @@ analDF %>%
 
 lastPlot <- graph_from_adjacency_matrix(friendsMatrix)
 
-agents$totPrims <- rowSums(agents[,3:6])
+agentsPrevious$totPrims <- rowSums(agentsPrevious[,3:6])
+agentsPrevious$totPrims[agentsPrevious$primCombo == "XX"] <- 0
 
-agents$color <- NA
+agentsPrevious$color <- NA
 
-agents$color[agents$totPrims == 0] <- "red"
-agents$color[agents$totPrims == 1] <- "orange"
-agents$color[agents$totPrims == 2] <- "yellow"
-agents$color[agents$totPrims == 3] <- "lightgreen"
-agents$color[agents$totPrims == 4] <- "darkgreen"
+agentsPrevious$color[agentsPrevious$totPrims == 0] <- "red"
+agentsPrevious$color[agentsPrevious$totPrims == 1] <- "orange"
+agentsPrevious$color[agentsPrevious$totPrims == 2] <- "yellow"
+agentsPrevious$color[agentsPrevious$totPrims == 3] <- "lightgreen"
+agentsPrevious$color[agentsPrevious$totPrims == 4] <- "darkgreen"
 
-V(lastPlot)$color <- agents$color
-V(lastPlot)$totPrims <- agents$totPrims
+# agentsPrevious$color[agentsPrevious$av <= 0.355] <- "red"
+# agentsPrevious$color[agentsPrevious$av > 0.355 & agentsPrevious$av <= 0.458] <- "orange"
+# agentsPrevious$color[agentsPrevious$av > 0.458 & agentsPrevious$av <= 0.51] <- "yellow"
+# agentsPrevious$color[agentsPrevious$av == 3] <- "lightgreen"
+# agentsPrevious$color[agentsPrevious$av == 4] <- "darkgreen"
 
+#create vector of unique association values in order
+# associationVals <- round(agentsPrevious$av, digits = 2)
+# associationVals <- sort(unique(agentsPrevious$av))
+
+pal <- colorRampPalette(c("red", "yellow", "green"))
+n_colors <- 256
+av_range <- seq(min(agentsPrevious$av), max(agentsPrevious$av), length.out = n_colors)
+cols <- pal(n_colors)[pmax(1, findInterval(agentsPrevious$av, av_range))]
+agentsPrevious$color <- cols
+
+
+
+V(lastPlot)$color <- agentsPrevious$color
+V(lastPlot)$totPrims <- agentsPrevious$totPrims
+V(lastPlot)$av <- agentsPrevious$av * 100
 
 plot(lastPlot,
      layout = layout_with_kk,
-     #vertex.label = NA,
+     vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
@@ -781,6 +802,7 @@ plot(lastPlot,
      vertex.shape = "circle",
      edge.arrow.mode = "-")
 
+assortativity(lastPlot, V(lastPlot)$av)
 
 
 # Number of Cliques #
@@ -842,10 +864,69 @@ agents %>%
             sdGroupS = sd(groupStrength))
 
 
+```
+
+#Total Plots
+```{r}
+res1 <- read.csv("results_mar_2.csv")
+res2 <- read.csv("results_mar_4.csv")
+res3 <- read.csv("results_mar_6.csv")
+res4 <- read.csv("results_mar_7.csv")
+
+res2$loop <- res2$loop + 2
+res3$loop <- res3$loop + 4
+res4$loop <- res4$loop + 6
+
+resTot <- rbind(res1, res2, res3, res4)
+
+#calc prim tot
+resTot$primTot <- nchar(resTot$primCombo)
+resTot$primTot[resTot$primCombo == "XX"] <- 0
+resTot$primTot <- as.factor(resTot$primTot)
+
+
+#summarised plot with combo
+resAvg <- resTot %>%
+  group_by(generation, primCombo) %>%
+  summarise(n = mean(n), .groups = "drop")
+
+ggplot(resAvg, aes(x = generation,
+                             y = n,
+                             group = primCombo)) +
+  
+  geom_line(aes(color = primCombo)) +
+  labs(x = "generation",
+       y = "number of agents")+
+  theme_bw()
+
+#summarised plot with combo
+primTotsDF <- resTot %>%
+  group_by(loop, generation, primTot) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+resAvg2 <- primTotsDF %>%
+  group_by(generation, primTot) %>%
+  summarise(n = mean(n), .groups = "drop")
+
+ggplot(resAvg2, aes(x = generation,
+                             y = n,
+                      color = primTot)) +
+  geom_smooth(aes(color = primTot)) +
+  labs(x = "generation",
+       y = "number of agents")+
+  theme_bw()
 
 
 
 
+
+
+```
+
+#Posterior Beliefs
+```{r}
+#collapse number of pursuits
+totalPursued <- Reduce("+", pursuitMatList)
 
 
 ```
