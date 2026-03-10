@@ -10,7 +10,10 @@ output: html_document
 #Life Cycle
 
 1. Cooperate
-2. Pursue
+2. Pursue:
+--agents first calculate their perceived groupishness with each other agent based on last round's cooperations
+--then they choose who to pursue based on that and association value
+ 
 
 
 
@@ -33,22 +36,22 @@ library(igraph)
 popSize = 100
 
 #number of pursuits agents can make
-numPursuits = 7
+numPursuits = 3
 
 #number of rounds
-rounds = 1000
+rounds = 500
 
 #probability of cooperating with group member
-probCoopGroup = 0.6
+probCoopGroup = 0.9
 
 #probability of cooperating with nongroup member
-probCoopNon = 0.3
+probCoopNon = 0.1
 
 #number of generations
 generations = 15
 
 #number of loops
-modelLoops = 2
+modelLoops = 1
 
 multiplier = 1.4
 
@@ -187,8 +190,6 @@ makeAssociationMat <- function(agentsDF, sd){
   
   diag(associationMat) <- NA
   
-  associationMat <- associationMat/100
-  
   return(associationMat)
   
 }
@@ -260,10 +261,10 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   if("alliance" %in% primStrat){
     
     #get the agents that also cooperated with agent's sent cooperations
-    posUpdate <- c(posUpdate,unname(which(coopMat[,sentCoops, drop = FALSE] == 1, arr.ind = T)[,"row"]))
+    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[,sentCoops, drop = FALSE] == 1, arr.ind = T)[,"row"]))
     
     #get the agents that did not cooperate with agent's sent cooperations
-    negUpdate <- c(negUpdate,unname(which(coopMat[,sentCoops, drop = FALSE] == 0, arr.ind = T)[,"row"]))
+    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[,sentCoops, drop = FALSE] == 0, arr.ind = T)[,"row"]))
     
   }
   
@@ -271,10 +272,10 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   if("displacement" %in% primStrat){
     
     #get the agents that agent's sent cooperations cooperated with 
-    posUpdate <- c(posUpdate,unname(which(coopMat[sentCoops, , drop = FALSE] == 1, arr.ind = T)[,"col"]))
+    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[sentCoops, , drop = FALSE] == 1, arr.ind = T)[,"col"]))
     
     #get the agents that agent's sent cooperations did not cooperate with 
-    negUpdate <- c(negUpdate,unname(which(coopMat[sentCoops, , drop = FALSE] == 0, arr.ind = T)[,"col"]))
+    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[sentCoops, , drop = FALSE] == 0, arr.ind = T)[,"col"]))
     
   } 
   
@@ -282,10 +283,10 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   if("defense" %in% primStrat){
     
     #get the agents that cooperated with agent's received cooperators 
-    posUpdate <- c(posUpdate,unname(which(coopMat[, recCoops, drop = F] == 1, arr.ind = T)[,"row"]))
+    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[, recCoops, drop = F] == 1, arr.ind = T)[,"row"]))
     
     #get the agents that did not cooperate with agent's received cooperators 
-    negUpdate <- c(negUpdate,unname(which(coopMat[, recCoops, drop = F] == 0, arr.ind = T)[,"row"]))
+    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[, recCoops, drop = F] == 0, arr.ind = T)[,"row"]))
     
   }
     
@@ -293,10 +294,10 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   if("generalization" %in% primStrat){
     
     #get the agents that the agent's received cooperators cooperated with 
-    posUpdate <- c(posUpdate,unname(which(coopMat[recCoops, ,drop = F] == 1, arr.ind = T)[,"col"]))
+    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[recCoops, ,drop = F] == 1, arr.ind = T)[,"col"]))
     
     #get the agents that the agent's received cooperators did not cooperate with 
-    negUpdate <- c(negUpdate,unname(which(coopMat[recCoops, ,drop = F] == 0, arr.ind = T)[,"col"]))
+    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[recCoops, ,drop = F] == 0, arr.ind = T)[,"col"]))
     
   }
   
@@ -307,7 +308,7 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   #Go through each one and update groupishness
   for(i in 1:length(posUpdate)) {
     
-    #pull t's name
+    #pull agent's name
     agentName <- posUpdate[i]
     
     #get prior groupishness between A and i
@@ -470,7 +471,7 @@ for (m in 1:modelLoops) {
     print(g)
     
     #generate association mat so agents see each other's av a bit differently
-    associationMat <- makeAssociationMat(agents, 0.15)
+    associationMat <- makeAssociationMat(agents, 0.10)
     
     #matrix that holds each agent's perceived groupishness with each other agent
     groupishMat <- matrix(numPursuits / popSize, nrow = popSize, ncol = popSize)
@@ -478,47 +479,48 @@ for (m in 1:modelLoops) {
   
     #pursuit matrix list of noncumulative interactions
     pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+    diag(pursuitMat) <- NA
     pursuitMatList <- list(pursuitMat)
     
     #matrix that holds cooperations to be backreferenced for previous rounds
-    coopMat <- matrix(0, nrow = popSize, ncol = popSize)
-    coopMatList <- list(coopMat)
+    coopMatPrev <- matrix(0, nrow = popSize, ncol = popSize)
+    diag(coopMatPrev) <- NA
 
     
     # ROUNDS #
     
     for (r in 2:rounds) {
       
-      # PURSUE #
-      
       #make the empty new pursuit matrix
       pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(pursuitMat)
+      
+      coopMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(coopMat) <- NA
+      
+      # PURSUE # 
+      
+      #only update groupishness for rounds after 2 when cooperation actually occurs
+      if (r > 2) {
+        
+        #calculate groupishness based on last round's cooperations
+      
+        #bayesian update when there was a cooperation
+        num1 <- groupishMat * probCoopGroup
+        den1 <- num1 + (1 - groupishMat) * probCoopNon
+        
+        #update when there was not a cooperation
+        num0 <- groupishMat * (1 - probCoopGroup)
+        den0 <- num0 + (1 - groupishMat) * (1 - probCoopNon)
+        
+        #update groupishmat
+        groupishMat <- ifelse(t(coopMatPrev) == 1, num1 / den1, num0 / den0)
+        
+      }
       
       #each agent chooses k other agents to pursue
       for (a in 1:popSize) {
-        
-        #agent updates the posterior probabilities of group membership with each other agent
-        for (b in 1:popSize) {
-          
-          #skip self
-          
-          if (b == a)
-            next
-          
-          #get whether b cooperated with agent last round
-          coopBin <- coopMatList[[r - 1]][b, a]
-          
-          #get the prior
-          priorB <- groupishMat[a, b]
-          
-          #calculate posterior probability
-          posteriorB <- posteriorGroup(priorB, probCoopGroup, probCoopNon, coopBin)
-          
-          #update groupish mat with new likelihood
-          groupishMat[a, b] <- posteriorB
-          
-        }
-        
+    
         #pull others' groupishness values
         groupVals <- groupishMat[a, ]
         
@@ -544,12 +546,15 @@ for (m in 1:modelLoops) {
       
       # TRANSITIVE INFERENCES #
       
-      for (a in 1:popSize) {
+      #only for rounds after 2
+      if (r > 2) {
         
-        #update the groupishness of their third party relationships based in accordance with their prim strats
-        groupishMat <- transUpdate(a, agents, pursuitMatList[[r - 1]], coopMatList[[r -
-                                                                                      1]], groupishMat)
-        
+        for (a in 1:popSize) {
+          
+          #update the groupishness of their third party relationships based in accordance with their prim strats
+          groupishMat <- transUpdate(a, agents, pursuitMatList[[r - 1]], coopMatPrev, groupishMat)
+          
+        }
       }
       
       # COOPERATE #
@@ -559,33 +564,13 @@ for (m in 1:modelLoops) {
       coopProbs <- ifelse(coopProbs == 0, probCoopNon, probCoopGroup)
       
       #now agents decide whether to cooperate with each other agent
-      for (a in 1:popSize) {
-        
-        #loop through other agents and have focal agent decide whether to cooperate with them
-        for (b in 1:popSize) {
-          
-          #skip self
-          if (b == a)
-            
-            next
-          
-          #pull the prob of cooperating
-          p <- coopProbs[a, b]
-          
-          #make decision to cooperate or not
-          decision <- rbinom(1, 1, prob = p)
-          
-          #add the decision to the cooperation matrix
-          coopMat[a, b] <- decision
-          
-        }
-        
-      }
+      coopMat <- matrix(rbinom(popSize^2, 1, coopProbs), nrow = popSize)
+      diag(coopMat) <- NA
+
+      #make that the new last coop to be referenced in next round
+      coopMatPrev <- coopMat
       
-      #append the coop mat to the list
-      coopMatList[[r]] <- coopMat
-      
-      
+  
       # GAME #
       
       #get matrix of only reciprocated pursuits
@@ -668,7 +653,7 @@ for (m in 1:modelLoops) {
 
 results <- bind_rows(resultsList)
 
-write.csv(results, "results_mar_7.csv")
+#write.csv(results, "results_mar_7.csv")
 ```
 
 
