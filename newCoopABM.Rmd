@@ -51,7 +51,7 @@ probCoopNon = 0.1
 generations = 15
 
 #number of loops
-modelLoops = 1
+modelLoops = 5
 
 multiplier = 1.4
 
@@ -453,8 +453,6 @@ reproduce <- function(agentDF, selStrength, n){
 resultsList <- list()
 counter <- 1
 
-
-
 # START #
 
 for (m in 1:modelLoops) {
@@ -575,6 +573,7 @@ for (m in 1:modelLoops) {
       
       #get matrix of only reciprocated pursuits
       friendsMatrix <- pursuitMat * t(pursuitMat)
+      diag(friendsMatrix) <- 0
       
       #randomly pick one agent to play game
       gamer <- sample(popSize, 1)
@@ -603,7 +602,7 @@ for (m in 1:modelLoops) {
             prod(rbinom(
               nrow(gamersMat),
               1,
-              rowSums(gamersMat) / nrow(gamersMat)
+              rowSums(gamersMat, na.rm = T) / nrow(gamersMat)
             )) == 1) {
           
           #calculate the payoff each agent will receive
@@ -642,6 +641,8 @@ for (m in 1:modelLoops) {
     counter <- counter + 1
     
     agentsPrevious <- agents
+    
+    cat("max payoff:", max(agents$payoff), "\n")
     
     # Reproduce #
     agents <- reproduce(agents, selStrength, popSize)
@@ -778,7 +779,7 @@ V(lastPlot)$av <- agentsPrevious$av * 100
 
 plot(lastPlot,
      layout = layout_with_kk,
-     vertex.label = NA,
+     #vertex.label = NA,
      #  rescale = F,
      layout = layout_with_kk,
      vertex.size = 8,
