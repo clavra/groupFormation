@@ -471,7 +471,6 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   
   )
   
-  
 #birth the agents
 agents <- agentDFs[[m]]
 
@@ -479,10 +478,13 @@ counts <- agents %>% count(combo)
 
 resultsDF$amount[resultsDF$generation == 0] <- counts$n[match(resultsDF$combo[resultsDF$generation == 0], counts$combo)]
 
+g <- 1
+converged <- FALSE
+  
 
 # GENERATION #
 
-for (g in 1:generations) {
+while (g <= generations & !converged) {
     
     #generate association mat so agents see each other's av a bit differently
     associationMat <- makeAssociationMat(agents, 0.10)
@@ -643,11 +645,17 @@ for (g in 1:generations) {
     #put it in results df
     resultsDF$amount[resultsDF$generation == g] <- allCounts$n[match(resultsDF$combo[resultsDF$generation == g], allCounts$combo)]
     
-  } #gen
+    if (max(agents %>% count(combo) %>% pull(n)) == popSize) {
+      converged <- TRUE
+      cat("converged at generation", g, "\n")
+      
+    } 
+    
+    g <- g + 1
+    
+} #gen
 
-  
   resultsDF
-  
 }
 
 stopCluster(cl)
@@ -655,6 +663,67 @@ stopCluster(cl)
 end.time <- Sys.time()
 
 #write.csv(results, "realRes_mar_10.csv")
+```
+
+```{r}
+
+results <- read.csv("G:/My Drive/groupFormationResults/groupFormationrealRes_mar_11.csv")
+results <- results[-c(1)]
+
+results$totPrims <- nchar(results$combo)
+results$totPrims[results$combo == "XX"] <- 0
+
+#analysis mean across loops
+analysis <- results %>%
+  group_by(totPrims, generation, loop) %>%
+  summarise(total = sum(amount, na.rm = T), .groups = "drop") %>%
+  group_by(totPrims, generation) %>%
+  summarise(mean = mean(total, na.rm = T), .groups = "drop"
+           )
+#plot 
+ggplot(analysis, aes(x = generation,  
+                     y = mean,
+                     color = as.factor(totPrims))) +
+  labs(x = "generation",
+       y = "% of agents",
+       title = "population of agents over time by number of prims they use",
+       subtitle = "pursuitAmount = 4, rounds = 500",
+       color = "# of prims used") +
+  geom_line()
+
+#analysis not mean across groups
+analysis2 <- results %>%
+  group_by(totPrims, generation, loop) %>%
+  summarise(total = sum(amount, na.rm = T), .groups = "drop") 
+
+#plot
+ggplot(analysis2, aes(x = generation,  
+                     y = total,
+                     color = as.factor(totPrims),
+                     group = interaction(totPrims, loop))) +
+  geom_line(alpha = 0.5) +
+  labs(x = "generation", y = "number of agents")+
+  theme_minimal()
+      
+#analysis by prim combo 
+analysis3 <- results %>%
+  group_by(combo, generation) %>%
+  summarise(mean = mean(amount, na.rm = T), .groups = "drop"
+           )
+#plot mean across groups
+ggplot(analysis3, aes(x = generation,  
+                     y = mean,
+                     color = combo)) +
+  labs(x = "generation",
+       y = "% of agents",
+       title = "population of agents over time by number of prims they use",
+       subtitle = "pursuitAmount = 4, rounds = 500",
+       color = "# of prims used") +
+  geom_line()
+     
+
+
+
 ```
 
 
