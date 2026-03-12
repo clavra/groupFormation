@@ -38,7 +38,7 @@ popSize <- 100
 reassessments <- 200
 
 #number of loops for the whole model
-modelLoops <- 20
+modelLoops <- 10
 
 #number of generations
 generations <- 25
@@ -55,10 +55,14 @@ numOV <- 50
 numXX <- popSize - numOV
   
 #selection strength (higher = stronger)
+<<<<<<< HEAD
 selStrength <- 4
+=======
+#selStrength <- 3
+>>>>>>> 3f80c3e8e251a095a2b6435d9a33f413e93213c3
 
 #probability of mutation
-flipProb <- 0.01
+flipProb <- 0
 
 #how much the groups' collective AV bucket is amplified before being redistributed
 multiplier <- 1.2
@@ -67,12 +71,22 @@ multiplier <- 1.2
 #sizeReq <- 4
 
 #path to save results file
+<<<<<<< HEAD
 myPath <- "G:/My Drive/groupFormationResults/parameterChange.csv"
+=======
+myPath <- "G:/My Drive/groupFormationResults/params.csv"
+>>>>>>> 3f80c3e8e251a095a2b6435d9a33f413e93213c3
 
                     
 
+<<<<<<< HEAD
 parameterDF <- data.frame("pursuitAmount" = c(3,3,5,5,7,7),
                           "sizeReq" = c(4,3,6,4,8,4)
+=======
+parameterDF <- data.frame("pursuitAmount" = c(3,3,3,3,7,7,7,7),
+                          "sizeReq" = c(4,3,4,3,8,4,8,4),
+                          "selStrength" = c(1,1,4,4,1,1,4,4)
+>>>>>>> 3f80c3e8e251a095a2b6435d9a33f413e93213c3
                          )
 
 ```
@@ -404,7 +418,11 @@ agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
 
 numCores <- detectCores()
 
+<<<<<<< HEAD
 cl <- makeCluster(numCores-2)
+=======
+cl <- makeCluster(numCores - 2)
+>>>>>>> 3f80c3e8e251a095a2b6435d9a33f413e93213c3
 
 registerDoParallel(cl)
 
@@ -421,17 +439,19 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
   
   
   
-  #Generate parent agents
-  agents <- agentDFs[[m]]
+  
   
   #each set of starting agents will be run using different parameters
   
   for (p in 1:nrow(parameterDF)) {
     
+    #Generate parent agents
+    agents <- agentDFs[[m]]
+  
     #Parameters
-    
     sizeReq <- parameterDF[p, "sizeReq"]
     pursuitAmount <- parameterDF[p, "pursuitAmount"]
+    selStrength <- parameterDF[p, "selStrength"]
     
     g <- 1
     
