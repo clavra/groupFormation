@@ -101,7 +101,19 @@ tots <- unlist(lapply(unique(primComboDF$tot), function(i) {
          replace = TRUE)
 }))
 
+
+paramDF <- data.frame(
+  probCoopGroup = rep(c(0.6, 0.9, 0.2, 0.9, 0.6, 0.9, 0.2, 0.9), 2),
+  probCoopNon   = rep(c(0.4, 0.1, 0.1, 0.8, 0.4, 0.1, 0.1, 0.8), 2),
+  numPursuits   = rep(c(3,   3,   3,   3,   7,   7,   7,   7),2)
+)
+
+paramDF$paramSet <- rep(1:8, times = 2)
+
+
 ```
+
+
 
 #Functions
 ```{r functions}
@@ -447,11 +459,11 @@ reproduce <- function(agentDF, selStrength, n){
 
 start.time <- Sys.time()
 
-#generate starting agents for each loop
-agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
+#generate starting agents for each loop (change to modelLoops if not using paramdf)
+agentDFs <- lapply(1:nrow(paramDF), function(x) agentGenerate(popSize))
 
 #set up parallel processing
-cores <- detectCores() - 6
+cores <- nrow(paramDF)
 cl <- makeCluster(cores)
 registerDoParallel(cl)
 clusterExport(cl, varlist = ls(envir = .GlobalEnv))
@@ -461,30 +473,41 @@ clusterEvalQ(cl, {
   library(tidyr)
 })
 
-results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
+#results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
 
+results <- foreach(p = 1:nrow(paramDF), .combine = rbind) %dopar% {
+  
+  #pull the parameters from the param df
+  probCoopGroup <- paramDF$probCoopGroup[p]
+  probCoopNon <- paramDF$probCoopNon[p]
+  numPursuits <- paramDF$numPursuits[p]
+
+  #make results df for this loop
   resultsDF <- data.frame(
-    "loop" = rep(m),
+    "loop" = rep(p),
     "generation" = rep(0:generations, each = length(primCombos)),
     "combo" = rep(primCombos),
-    "amount" = NA
-  
+    "amount" = NA,
+    "probCoopGroup" = probCoopGroup,
+    "probCoopNon" = probCoopNon,
+    "numPursuits" = numPursuits,
+    "paramSet" = paramDF$paramSet[p]
   )
   
-#birth the agents
-agents <- agentDFs[[m]]
-
-counts <- agents %>% count(combo)
-
-resultsDF$amount[resultsDF$generation == 0] <- counts$n[match(resultsDF$combo[resultsDF$generation == 0], counts$combo)]
-
-g <- 1
-converged <- FALSE
+  #birth the agents
+  agents <- agentDFs[[p]]
+  
+  counts <- agents %>% count(combo)
+  
+  resultsDF$amount[resultsDF$generation == 0] <- counts$n[match(resultsDF$combo[resultsDF$generation == 0], counts$combo)]
+  
+  g <- 1
+  converged <- FALSE
   
 
 # GENERATION #
-
-while (g <= generations & !converged) {
+  
+  while (g <= generations & !converged) {
     
     #generate association mat so agents see each other's av a bit differently
     associationMat <- makeAssociationMat(agents, 0.10)
