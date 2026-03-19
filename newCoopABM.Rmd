@@ -36,22 +36,22 @@ library(igraph)
 popSize = 100
 
 #number of pursuits agents can make
-numPursuits = 3
+numPursuits = 7
 
 #number of rounds
-rounds = 500
+rounds = 750
 
 #probability of cooperating with group member
-probCoopGroup = 0.9
+probCoopGroup = 0.2
 
 #probability of cooperating with nongroup member
 probCoopNon = 0.1
 
 #number of generations
-generations = 15
+generations = 30
 
 #number of loops
-modelLoops = 5
+modelLoops = 1
 
 multiplier = 1.4
 
@@ -59,7 +59,7 @@ multiplier = 1.4
 selStrength = 10
 
 #probability of a strat flipping
-flipProb = 0
+flipProb = 0.005
 
 #prim combo abbreviations 
 #list the prim combo abbreviations in order to append later
@@ -101,36 +101,6 @@ tots <- unlist(lapply(unique(primComboDF$tot), function(i) {
 
 #Agent generate function#
 
-# agentGenerate <- function(n){
-# 
-#   #agent IDs
-#   id <- c(1:n)
-# 
-#   #association value
-#   av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
-#   av <- av/100
-# 
-#   #strats
-#   alliance <- rbinom(n, 1, 0.5)
-#   generalization <- rbinom(n, 1, 0.5)
-#   displacement <- rbinom(n, 1, 0.5)
-#   defense <- rbinom(n, 1, 0.5)
-# 
-#   # alliance <- c(rep(c(0,1), each = popSize/2))
-#   # generalization <- c(rep(c(0,1), each = popSize/2))
-#   # displacement <- c(rep(c(0,1), each = popSize/2))
-#   # defense <- c(rep(c(0,1), each = popSize/2))
-# 
-#   payoff <- 0
-# 
-#   agents <- data.frame(id, av, alliance, generalization, displacement, defense, payoff)
-# 
-#   return(agents)
-# 
-# }
-
-
-#diff agent generate function that makes number of prims in strat equal in population
 agentGenerate <- function(n){
 
   #agent IDs
@@ -139,40 +109,70 @@ agentGenerate <- function(n){
   #association value
   av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
   av <- av/100
-  
-  #strategy
-  combo <- sample(tots, size = n, replace = F)
 
   #strats
-  alliance <- NA
-  generalization <- NA
-  displacement <- NA
-  defense <- NA
+  alliance <- rbinom(n, 1, 0.5)
+  generalization <- rbinom(n, 1, 0.5)
+  displacement <- rbinom(n, 1, 0.5)
+  defense <- rbinom(n, 1, 0.5)
+
+  # alliance <- c(rep(c(0,1), each = popSize/2))
+  # generalization <- c(rep(c(0,1), each = popSize/2))
+  # displacement <- c(rep(c(0,1), each = popSize/2))
+  # defense <- c(rep(c(0,1), each = popSize/2))
 
   payoff <- 0
 
-  agentDF <- data.frame(id, av, combo, alliance, generalization, displacement, defense, payoff)
-  
-  #map each letter to its prim
-  primMap <- c(
-    alliance = "A",
-    generalization = "G",
-    displacement = "P",
-    defense = "D"
-  )
-  
-  #fill in binary prim cols based on letters in combo
-  agentDF[names(primMap)] <-
-    sapply(primMap, function(letter) {
-      as.integer(grepl(letter, agentDF$combo))
-    })
+  agents <- data.frame(id, av, alliance, generalization, displacement, defense, payoff)
 
-  #delete combo col
-  agentDF <- agentDF[-c(3)]
-
-  return(agentDF)
+  return(agents)
 
 }
+
+
+#diff agent generate function that makes number of prims in strat equal in population
+# agentGenerate <- function(n){
+# 
+#   #agent IDs
+#   id <- c(1:n)
+# 
+#   #association value
+#   av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+#   av <- av/100
+#   
+#   #strategy
+#   combo <- sample(tots, size = n, replace = F)
+# 
+#   #strats
+#   alliance <- NA
+#   generalization <- NA
+#   displacement <- NA
+#   defense <- NA
+# 
+#   payoff <- 0
+# 
+#   agentDF <- data.frame(id, av, combo, alliance, generalization, displacement, defense, payoff)
+#   
+#   #map each letter to its prim
+#   primMap <- c(
+#     alliance = "A",
+#     generalization = "G",
+#     displacement = "P",
+#     defense = "D"
+#   )
+#   
+#   #fill in binary prim cols based on letters in combo
+#   agentDF[names(primMap)] <-
+#     sapply(primMap, function(letter) {
+#       as.integer(grepl(letter, agentDF$combo))
+#     })
+# 
+#   #delete combo col
+#   agentDF <- agentDF[-c(3)]
+# 
+#   return(agentDF)
+# 
+# }
 
 
 #Association Matrix#
@@ -238,14 +238,18 @@ posteriorGroup <- function(prior, probCoopGroup, probCoopNon, coop){
 
 
 #Transitive Inference#
+#Optimized version of transUpdate
 
 transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, groupMat){
   
   #get the prims they use
-  primStrat <- names(agentsDF)[3:6][agentsDF[agent,3:6] == 1]
+  primCols <- c("alliance", "generalization", "displacement", "defense")
+  primStrat <- primCols[agentsDF[agent, primCols] == 1]
   
   #pull the indices of the agents that the focal agent pursued
-  pursuees <- which(pursuitMatrix[agent, ] == 1, arr.ind = T)   
+  pursuees <- which(pursuitMatrix[agent, ] == 1)
+  
+  if(length(pursuees) == 0) return(groupMat)
   
   #vector of pursuees that focal agent cooperated with
   sentCoops <- pursuees[cooperationMatrix[agent, pursuees] == 1]
@@ -253,95 +257,64 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, group
   #vector of pursuees that cooperated with focal agent 
   recCoops <- pursuees[cooperationMatrix[pursuees, agent] == 1]
   
-  #basically we are gonna make a list of agents that A can "see" in accordance with their strat
   posUpdate <- c()
   negUpdate <- c()
   
   #Alliance#
-  if("alliance" %in% primStrat){
-    
-    #get the agents that also cooperated with agent's sent cooperations
-    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[,sentCoops, drop = FALSE] == 1, arr.ind = T)[,"row"]))
-    
-    #get the agents that did not cooperate with agent's sent cooperations
-    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[,sentCoops, drop = FALSE] == 0, arr.ind = T)[,"row"]))
-    
+  if("alliance" %in% primStrat && length(sentCoops) > 0){
+    subMat <- cooperationMatrix[, sentCoops, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
   }
   
   #Displacement#
-  if("displacement" %in% primStrat){
-    
-    #get the agents that agent's sent cooperations cooperated with 
-    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[sentCoops, , drop = FALSE] == 1, arr.ind = T)[,"col"]))
-    
-    #get the agents that agent's sent cooperations did not cooperate with 
-    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[sentCoops, , drop = FALSE] == 0, arr.ind = T)[,"col"]))
-    
-  } 
-  
-  #Defense#  
-  if("defense" %in% primStrat){
-    
-    #get the agents that cooperated with agent's received cooperators 
-    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[, recCoops, drop = F] == 1, arr.ind = T)[,"row"]))
-    
-    #get the agents that did not cooperate with agent's received cooperators 
-    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[, recCoops, drop = F] == 0, arr.ind = T)[,"row"]))
-    
+  if("displacement" %in% primStrat && length(sentCoops) > 0){
+    subMat <- cooperationMatrix[sentCoops, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
   }
-    
+  
+  #Defense#
+  if("defense" %in% primStrat && length(recCoops) > 0){
+    subMat <- cooperationMatrix[, recCoops, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
+  }
+  
   #Generalization#
-  if("generalization" %in% primStrat){
-    
-    #get the agents that the agent's received cooperators cooperated with 
-    posUpdate <- c(posUpdate,unname(which(cooperationMatrix[recCoops, ,drop = F] == 1, arr.ind = T)[,"col"]))
-    
-    #get the agents that the agent's received cooperators did not cooperate with 
-    negUpdate <- c(negUpdate,unname(which(cooperationMatrix[recCoops, ,drop = F] == 0, arr.ind = T)[,"col"]))
-    
+  if("generalization" %in% primStrat && length(recCoops) > 0){
+    subMat <- cooperationMatrix[recCoops, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
   }
   
-  #remove any transitive inferences that involve self
+  #remove self
   posUpdate <- posUpdate[posUpdate != agent]
   negUpdate <- negUpdate[negUpdate != agent]
   
-  #Go through each one and update groupishness
-  for(i in 1:length(posUpdate)) {
-    
-    #pull agent's name
-    agentName <- posUpdate[i]
-    
-    #get prior groupishness between A and i
-    prior <- groupMat[agent, agentName]
-    
-    #update their groupishness based on this transitive inference
-    posterior <- posteriorGroup(prior, probCoopGroup, probCoopNon, 1)
-    
-    #update groupish mat with new likelihood
-    groupMat[agent, agentName] <- posterior
-    
+  #update for each occurrence
+  if(length(posUpdate) > 0){
+    for(agentName in posUpdate){
+      prior <- groupMat[agent, agentName]
+      num <- prior * probCoopGroup
+      groupMat[agent, agentName] <- num / (num + (1 - prior) * probCoopNon)
+    }
   }
   
-  #Go through each one and update groupishness
-  for(i in 1:length(negUpdate)) {
-    
-    #pull t's name
-    agentName <- negUpdate[i]
-    
-    #get prior groupishness between A and i
-    prior <- groupMat[agent, agentName]
-    
-    #update their groupishness based on this transitive inference
-    posterior <- posteriorGroup(prior, probCoopGroup, probCoopNon, 0)
-    
-    #update groupish mat with new likelihood
-    groupMat[agent, agentName] <- posterior
-    
+  if(length(negUpdate) > 0){
+    for(agentName in negUpdate){
+      prior <- groupMat[agent, agentName]
+      num <- prior * (1 - probCoopGroup)
+      groupMat[agent, agentName] <- num / (num + (1 - prior) * (1 - probCoopNon))
+    }
   }
   
   return(groupMat)
   
 }
+
+
+
 
 
 #Contributions#
@@ -617,32 +590,30 @@ for (m in 1:modelLoops) {
     # SAVE DATA #
     
     #get names of prim combos
-    agents <- agents %>%
-      mutate(
-        primCombo = paste0(
-          ifelse(alliance == 1, "A", ""),
-          ifelse(generalization == 1, "G", ""),
-          ifelse(displacement == 1, "P", ""),
-          ifelse(defense == 1, "D", "")
-        ),
-        primCombo = ifelse(primCombo == "", "XX", primCombo)
-      )
-    
+    # agents <- agents %>%
+    #   mutate(
+    #     primCombo = paste0(
+    #       ifelse(alliance == 1, "A", ""),
+    #       ifelse(generalization == 1, "G", ""),
+    #       ifelse(displacement == 1, "P", ""),
+    #       ifelse(defense == 1, "D", "")
+    #     ),
+    #     primCombo = ifelse(primCombo == "", "XX", primCombo)
+    #   )
+    # 
     
     #bind the results to the results df
     resultsList[[counter]] <- agents %>%
-      count(primCombo) %>%
-      mutate(generation = g,
-             loop = m,
-             percent = n / sum(n))
+      summarise(across(alliance:defense, ~ mean(.) * 100)) %>%
+      pivot_longer(everything(), names_to = "prim", values_to = "percent") %>%
+      mutate(loop = m,
+             generation = g)
     
     print(resultsList[[counter]])
 
     counter <- counter + 1
     
     agentsPrevious <- agents
-    
-    cat("max payoff:", max(agents$payoff), "\n")
     
     # Reproduce #
     agents <- reproduce(agents, selStrength, popSize)
@@ -653,8 +624,31 @@ for (m in 1:modelLoops) {
 } #loop
 
 results <- bind_rows(resultsList)
+results$pG <- probCoopGroup
+results$pN <- probCoopNon
+results$numRounds <- rounds
+results$numPursuits <- numPursuits
+results$flipProb <- flipProb
 
-#write.csv(results, "results_mar_7.csv")
+#get the last loop number so it can be added to current
+if(file.exists("G:/My Drive/groupFormationResults/Actual Results/masterResults.csv")){
+  existing <- read.csv("G:/My Drive/groupFormationResults/Actual Results/masterResults.csv")
+  loop_offset <- max(existing$loop)
+} else {
+  loop_offset <- 0
+}
+
+#add offset to loop number in new results
+results$loop <- results$loop + loop_offset
+
+#append the results
+write.table(results, 
+            file = "masterResults.csv",
+            append = TRUE,
+            sep = ",",
+            col.names = !file.exists("masterResults.csv"),
+            row.names = FALSE)
+
 ```
 
 
