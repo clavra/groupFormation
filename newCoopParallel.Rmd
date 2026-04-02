@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Model Overview
 
-#Life Cycle
+Life Cycle
 
 1. Cooperate
 2. Pursue:
@@ -25,6 +25,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+#Packages
 ```{r packages}
 
 library(dplyr)
@@ -32,6 +33,8 @@ library(igraph)
 library(foreach)
 library(doParallel)
 library(magrittr)
+library(tidyverse)
+library(ggplot2)
 
 ```
 
@@ -55,10 +58,10 @@ probCoopGroup = 0.2
 probCoopNon = 0.1
 
 #number of generations
-generations = 75
+generations = 200
 
 #number of loops
-modelLoops = 5
+modelLoops = 55
 
 multiplier = 1.4
 
@@ -66,7 +69,7 @@ multiplier = 1.4
 selStrength = 10
 
 #probability of a strat flipping
-flipProb = 0.005
+flipProb = 0.002
 
 #prim combo abbreviations 
 #list the prim combo abbreviations in order to append later
@@ -102,7 +105,7 @@ tots <- unlist(lapply(unique(primComboDF$tot), function(i) {
 }))
 
 #write the path the CSV will save to
-masterPath <- "G:/My Drive/groupFormationResults/Actual Results/masterResults2.csv"
+masterPath <- "C:/Users/clavra/Downloads/masterResultsM2.csv"
 
 
 ```
@@ -427,7 +430,7 @@ start.time <- Sys.time()
 agentDFs <- lapply(1:modelLoops, function(x) agentGenerate(popSize))
 
 #set up parallel processing
-cores <- modelLoops
+cores <- detectCores() - 1 
 cl <- makeCluster(cores)
 registerDoParallel(cl)
 clusterExport(cl, varlist = ls(envir = .GlobalEnv))
@@ -541,7 +544,7 @@ results <- foreach(m = 1:length(agentDFs), .combine = rbind) %dopar% {
       coopProbs <- ifelse(coopProbs == 0, probCoopNon, probCoopGroup)
       
       #now agents decide whether to cooperate with each other agent
-      coopMat <- matrix(rbinom(popSize^2, 1, coopProbs), nrow = popSize)
+      coopMat <- suppressWarnings(matrix(rbinom(popSize^2, 1, coopProbs), nrow = popSize))
       diag(coopMat) <- NA
 
       #make that the new last coop to be referenced in next round
@@ -610,7 +613,142 @@ stopCluster(cl)
 
 end.time <- Sys.time()
 
-#write.csv(results, "G:/My Drive/groupFormationResults/Actual Results/results_mar19.csv")
+results <- bind_rows(results)
+results$pG <- probCoopGroup
+results$pN <- probCoopNon
+results$numRounds <- rounds
+results$numPursuits <- numPursuits
+results$flipProb <- flipProb
+
+
+#get the last loop number so it can be added to current
+if(file.exists(masterPath)){
+  existing <- read.csv(masterPath)
+  loop_offset <- max(existing$loop)
+} else {
+  loop_offset <- 0
+}
+
+#add offset to loop number in new results
+results$loop <- results$loop + loop_offset
+
+#append the results
+write.table(results, 
+            file = masterPath,
+            append = TRUE,
+            sep = ",",
+            col.names = !file.exists(masterPath),
+            row.names = FALSE)
+
+end.time - start.time
+```
+
+#Analysis
+```{r}
+
+results <- read.csv(masterPath)
+
+# Prim total #
+
+results$primTot <- rowSums(results[,3:6])
+
+#plot averaging across loops
+plot1 <- results %>%
+  mutate(primTot = factor(primTot)) %>%
+  group_by(loop, generation, primTot) %>%
+  summarise(n = n(), .groups = "drop") %>%  # still need per-loop counts
+  mutate(primTot = factor(primTot)) %>%
+  ggplot(aes(x = generation,
+             y = n,
+             color = primTot,
+             fill = primTot)) +
+  geom_smooth(alpha = 0.2) +
+  labs(x = "generation",
+       y = "% of agents (mean)",
+       color = "total prims in strat",
+       fill = "total prims in strat",
+       title = "Percent of agents using each quantity of prims",
+       subtitle = "averaged across 23 model loops",
+       caption = "rounds = 100, pG = 0.2, pN = 0.1,
+       flipProb = 0.002, numPursuits = 7, popSize = 100") +
+  theme_bw()
+
+
+
+# Prim combo #
+
+#add the name of the prim combo
+results <- results %>%
+      mutate(
+        primCombo = paste0(
+          ifelse(alliance == 1, "A", ""),
+          ifelse(generalization == 1, "G", ""),
+          ifelse(displacement == 1, "P", ""),
+          ifelse(defense == 1, "D", "")
+        ),
+        primCombo = ifelse(primCombo == "", "XX", primCombo)
+      )
+
+#highlight AGPD
+combos <- sort(unique(results$primCombo))
+color_vals <- setNames(rep("gray80", length(combos)), combos)
+color_vals["AGPD"] <- "#0BB702"
+
+
+#plot
+plot2.2 <- results %>%
+  group_by(loop, generation, primCombo) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  ggplot(aes(
+    x = generation,
+    y = n,
+    color = primCombo,
+    fill = primCombo
+  )) +
+  geom_smooth(alpha = 0.2) +
+#   scale_color_manual(values = color_vals) +  #uncomment to highlight AGPD
+#   scale_fill_manual(values = color_vals) +
+  labs(
+    x = "generation",
+    y = "% of agents (mean)",
+    color = "prim combo",
+    fill = "prim combo",
+    title = "Percent of agents using each prim combo",
+    subtitle = "averaged across 100 model loops",
+    caption = "rounds = 750,
+       pG = 0.2,
+       pN = 0.1,
+       flipProb = 0.002,
+       numPursuits = 7,
+       popSize = 100"
+  ) +
+  theme_bw()
+
+
+# Individual prims #
+
+plot3 <- results %>% pivot_longer(
+  cols = c(alliance, generalization, displacement, defense),
+  names_to = "prim",
+  values_to = "value"
+) %>% group_by(loop, generation, prim) %>% summarise(pct = mean(value), .groups = "drop") %>% ggplot(aes(
+  x = generation,
+  y = pct,
+  color = prim,
+  fill = prim
+)) + geom_smooth(alpha = 0.2) + scale_y_continuous(labels = scales::percent) + guides(color = guide_legend("prim"), fill = guide_legend("prim")) + labs(
+  x = "generation",
+  y = "% of agents",
+  color = "prim",
+  fill = "prim",
+  title = "Percent of agents using each prim",
+  subtitle = "averaged across 100 model loops",
+  caption = "rounds = 750, pG = 0.2, pN = 0.1, flipProb = 0.002, numPursuits = 7, popSize = 100"
+) + theme_bw()
+
+
+ggsave("indPrimsPlot.png", plot = plot3)
+
 ```
 
 ```{r}
