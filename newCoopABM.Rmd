@@ -1,0 +1,977 @@
+---
+title: "realCoop"
+author: "Clara Lavrador"
+date: "2026-01-13"
+output: html_document
+---
+
+## Model Overview
+
+#Life Cycle
+
+1. Cooperate
+2. Pursue:
+--agents first calculate their perceived groupishness with each other agent based on last round's cooperations
+--then they choose who to pursue based on that and association value
+ 
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages}
+
+library(dplyr)
+library(igraph)
+library(tidyverse)
+```
+
+
+#Parameters
+```{r parameters}
+
+#number of agents
+popSize = 100
+
+#number of pursuits agents can make
+numPursuits = 7
+
+#number of rounds
+rounds = 750
+
+#probability of cooperating with group member
+probCoopGroup = 0.2
+
+#probability of cooperating with nongroup member
+probCoopNon = 0.1
+
+#number of generations
+generations = 75
+
+#number of loops
+modelLoops = 5
+
+multiplier = 1.4
+
+#strength of selection
+selStrength = 10
+
+#probability of a strat flipping
+flipProb = 0.005
+
+#prim combo abbreviations 
+#list the prim combo abbreviations in order to append later
+primCombos <- c("A",
+"P",
+"D",
+"G",
+"AP",
+"AD",
+"AG",
+"PD",
+"PG",
+"DG",
+"APD",
+"APG",
+"ADG",
+"PDG",
+"APDG",
+"XX")
+
+primComboDF <- data.frame("combo" =  primCombos,
+                             "tot" = NA)
+
+primComboDF$tot <- nchar(primComboDF$combo)
+
+primComboDF$tot[primComboDF$combo == "XX"] <- 0
+
+#we need popSize/5 of each prim tot
+tots <- unlist(lapply(unique(primComboDF$tot), function(i) {
+  sample(primComboDF$combo[primComboDF$tot == i], 
+         popSize/5, 
+         replace = TRUE)
+}))
+
+#write the path the CSV will save to
+masterPath <- "G:/My Drive/groupFormationResults/Actual Results/masterResults2.csv"
+
+```
+
+#Functions
+```{r functions}
+
+#Agent generate function#
+
+agentGenerate <- function(n){
+
+  #agent IDs
+  id <- c(1:n)
+
+  #association value
+  av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+  av <- av/100
+
+  #strats
+  alliance <- rbinom(n, 1, 0.5)
+  generalization <- rbinom(n, 1, 0.5)
+  displacement <- rbinom(n, 1, 0.5)
+  defense <- rbinom(n, 1, 0.5)
+
+  # alliance <- c(rep(c(0,1), each = popSize/2))
+  # generalization <- c(rep(c(0,1), each = popSize/2))
+  # displacement <- c(rep(c(0,1), each = popSize/2))
+  # defense <- c(rep(c(0,1), each = popSize/2))
+
+  payoff <- 0
+
+  agents <- data.frame(id, av, alliance, generalization, displacement, defense, payoff)
+
+  return(agents)
+
+}
+
+
+#diff agent generate function that makes number of prims in strat equal in population
+# agentGenerate <- function(n){
+# 
+#   #agent IDs
+#   id <- c(1:n)
+# 
+#   #association value
+#   av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+#   av <- av/100
+#   
+#   #strategy
+#   combo <- sample(tots, size = n, replace = F)
+# 
+#   #strats
+#   alliance <- NA
+#   generalization <- NA
+#   displacement <- NA
+#   defense <- NA
+# 
+#   payoff <- 0
+# 
+#   agentDF <- data.frame(id, av, combo, alliance, generalization, displacement, defense, payoff)
+#   
+#   #map each letter to its prim
+#   primMap <- c(
+#     alliance = "A",
+#     generalization = "G",
+#     displacement = "P",
+#     defense = "D"
+#   )
+#   
+#   #fill in binary prim cols based on letters in combo
+#   agentDF[names(primMap)] <-
+#     sapply(primMap, function(letter) {
+#       as.integer(grepl(letter, agentDF$combo))
+#     })
+# 
+#   #delete combo col
+#   agentDF <- agentDF[-c(3)]
+# 
+#   return(agentDF)
+# 
+# }
+
+
+#Association Matrix#
+#make association mat so that there is noise in how AVs are perceived by others
+
+makeAssociationMat <- function(agentsDF, sd){
+  
+  associationMat <- matrix(, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agentsDF)){
+    
+    associationMat[,a] <-  rnorm(popSize, mean = agentsDF$av[a], sd = sd)
+    
+  }
+  
+  diag(associationMat) <- NA
+  
+  return(associationMat)
+  
+}
+
+
+#Reciprocity Function#
+reciprocity <- function(agent, adjMat){
+  
+  #pull agent's column which represents their received pursuits
+  received <- adjMat[,agent]
+  
+  #pull agent's row which represents their sent pursuits
+  sent <- adjMat[agent,]
+    
+  #calculate proportions of pursuits which were received
+  reciprocity_scores <- (received / (received + sent))
+  
+  #nullify their own reciprocity score
+  reciprocity_scores[agent] <- NA
+  
+  return(reciprocity_scores)
+  
+}
+
+
+#Bayes Rule#
+posteriorGroup <- function(prior, probCoopGroup, probCoopNon, coop){
+  
+  if(coop == 1){
+    
+    num <- prior * probCoopGroup
+    den <- num + (1-prior)*(probCoopNon)
+    
+  } else {
+    
+    num <- prior * (1-probCoopGroup)
+    den <- num + (1-prior)*(1-probCoopNon)
+    
+  }
+  
+  posterior <- num/den
+  
+  return(posterior)
+  
+}
+
+
+#Transitive Inference#
+#Optimized version of transUpdate
+
+transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, groupMat){
+  
+  #get the prims they use
+  primCols <- c("alliance", "generalization", "displacement", "defense")
+  primStrat <- primCols[agentsDF[agent, primCols] == 1]
+  
+  #pull the indices of the agents that the focal agent pursued
+  pursuees <- which(pursuitMatrix[agent, ] == 1)
+  
+  if(length(pursuees) == 0) return(groupMat)
+  
+  #vector of pursuees that focal agent cooperated with
+  sentCoops <- pursuees[cooperationMatrix[agent, pursuees] == 1]
+  
+  #vector of pursuees that cooperated with focal agent 
+  recCoops <- pursuees[cooperationMatrix[pursuees, agent] == 1]
+  
+  posUpdate <- c()
+  negUpdate <- c()
+  
+  #Alliance#
+  if("alliance" %in% primStrat && length(sentCoops) > 0){
+    subMat <- cooperationMatrix[, sentCoops, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
+  }
+  
+  #Displacement#
+  if("displacement" %in% primStrat && length(sentCoops) > 0){
+    subMat <- cooperationMatrix[sentCoops, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
+  }
+  
+  #Defense#
+  if("defense" %in% primStrat && length(recCoops) > 0){
+    subMat <- cooperationMatrix[, recCoops, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
+  }
+  
+  #Generalization#
+  if("generalization" %in% primStrat && length(recCoops) > 0){
+    subMat <- cooperationMatrix[recCoops, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
+  }
+  
+  #remove self
+  posUpdate <- posUpdate[posUpdate != agent]
+  negUpdate <- negUpdate[negUpdate != agent]
+  
+  #update for each occurrence
+  if(length(posUpdate) > 0){
+    for(agentName in posUpdate){
+      prior <- groupMat[agent, agentName]
+      num <- prior * probCoopGroup
+      groupMat[agent, agentName] <- num / (num + (1 - prior) * probCoopNon)
+    }
+  }
+  
+  if(length(negUpdate) > 0){
+    for(agentName in negUpdate){
+      prior <- groupMat[agent, agentName]
+      num <- prior * (1 - probCoopGroup)
+      groupMat[agent, agentName] <- num / (num + (1 - prior) * (1 - probCoopNon))
+    }
+  }
+  
+  return(groupMat)
+  
+}
+
+
+
+
+
+#Contributions#
+
+payoff <- function(gameMatrix, gamers, agentDF){
+  
+  #start the sum
+  contributionTot <- 0
+  
+  #for each agent...
+  for(agent in gamers){
+    
+    #their max contribution is their association value
+    maxContribution <- agentDF$av[row.names(agentDF) == agent] * 100
+    
+    #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
+    proportionTied <- if (nrow(gameMatrix) > 1) sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1) else 0
+    
+    #calculate their contribution 
+    contribution <- maxContribution * proportionTied
+    
+    #add their total contribution to those of the other agents
+    contributionTot <- contributionTot + contribution
+    
+    #add their noncontributed pay to their corresponding slot in payoff vector (what they keep)
+    agentDF$payoff[as.numeric(agent)] <- agentDF$payoff[as.numeric(agent)] + (maxContribution - contribution)
+    
+  }
+  
+  contributionTot <- contributionTot * multiplier
+  
+  #divide the pooled contributions by the number of agents in the group
+  basePay <- contributionTot/nrow(gameMatrix)
+  
+  agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
+  
+  #return the payoff vector
+  return(agentDF)
+  
+}
+
+#Reproduction#
+
+reproduce <- function(agentDF, selStrength, n){
+  
+  #rescale payoffs to be between 0-1
+  agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
+  agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
+  
+  #add constant to prob weight to fix strength of selection
+  agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
+  
+  #generate random offspring
+  offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = agentDF$payoff),] #the bigger the decimal, the larger the diff
+  
+  #Reset IDs
+  row.names(offspringDF) <- 1:n
+  
+  offspringDF$id <- 1:n
+  
+  #Reset payoff vec
+  offspringDF$payoff <- 0
+  
+  #Mutation:
+  
+  #for each agent...
+  for (a in 1:nrow(offspringDF)) {
+    
+    #change their association value to be within certain SD of original parent AV
+    association_value <- rnorm(1, mean = offspringDF$av[a], sd = .01)
+    
+    #don't let association value get above 1
+    association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
+    
+    #don't let association value get below 0
+    association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
+    
+    #assign the new mutated association value
+    offspringDF$av[a] <- association_value
+    
+    #flip each trait or nah and replace into corresponding cells
+    offspringDF[a, 3:6] <- (offspringDF[a, 3:6] + rbinom(4, 1, flipProb)) %% 2
+    
+   }
+  
+  offspringDF <- offspringDF[-c(8)]
+  
+  return(offspringDF)
+  
+}
+
+
+
+
+
+
+```
+
+#Life Cycle
+```{r lifeCycle} 
+
+#analysis dataframe
+# results <- data.frame(
+#   "loop" = rep(1:modelLoops, each = generations*length(primCombos)),
+#   "generation" = rep(1:generations),
+#   "primCombo" = rep(primCombos))
+
+
+resultsList <- list()
+counter <- 1
+
+# START #
+
+for (m in 1:modelLoops) {
+  
+  print(m)
+  
+  #birth the agents
+  agents <- agentGenerate(popSize)
+  
+  # GENERATION #
+  
+  for (g in 1:generations) {
+    
+    print(g)
+    
+    #generate association mat so agents see each other's av a bit differently
+    associationMat <- makeAssociationMat(agents, 0.10)
+    
+    #matrix that holds each agent's perceived groupishness with each other agent
+    groupishMat <- matrix(numPursuits / popSize, nrow = popSize, ncol = popSize)
+    diag(groupishMat) <- NA
+  
+    #pursuit matrix list of noncumulative interactions
+    pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+    diag(pursuitMat) <- NA
+    pursuitMatList <- list(pursuitMat)
+    
+    #matrix that holds cooperations to be backreferenced for previous rounds
+    coopMatPrev <- matrix(0, nrow = popSize, ncol = popSize)
+    diag(coopMatPrev) <- NA
+
+    
+    # ROUNDS #
+    
+    for (r in 2:rounds) {
+      
+      #make the empty new pursuit matrix
+      pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(pursuitMat)
+      
+      coopMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(coopMat) <- NA
+      
+      # PURSUE # 
+      
+      #only update groupishness for rounds after 2 when cooperation actually occurs
+      if (r > 2) {
+        
+        #calculate groupishness based on last round's cooperations
+      
+        #bayesian update when there was a cooperation
+        num1 <- groupishMat * probCoopGroup
+        den1 <- num1 + (1 - groupishMat) * probCoopNon
+        
+        #update when there was not a cooperation
+        num0 <- groupishMat * (1 - probCoopGroup)
+        den0 <- num0 + (1 - groupishMat) * (1 - probCoopNon)
+        
+        #update groupishmat
+        groupishMat <- ifelse(t(coopMatPrev) == 1, num1 / den1, num0 / den0)
+        
+      }
+      
+      #each agent chooses k other agents to pursue
+      for (a in 1:popSize) {
+    
+        #pull others' groupishness values
+        groupVals <- groupishMat[a, ]
+        
+        #pull others' association values from the perspective of a
+        assocVals <- associationMat[a, ]
+        
+        #calculate the pursuit scores by combining association and reciprocity
+        pursuitScores <- assocVals * groupVals
+        
+        #nullify their own
+        pursuitScores[a] <- NA
+        
+        #order from highest to lowest scores
+        pursuit_indices <- order(-pursuitScores)[1:numPursuits]
+        
+        #add 1 to their pursuits in the pursuit matrix
+        pursuitMat[a, pursuit_indices] <- 1
+        
+      }
+      
+      #bind the pursuit mat to the list
+      pursuitMatList[[r]] <- pursuitMat
+      
+      # TRANSITIVE INFERENCES #
+      
+      #only for rounds after 2
+      if (r > 2) {
+        
+        for (a in 1:popSize) {
+          
+          #update the groupishness of their third party relationships based in accordance with their prim strats
+          groupishMat <- transUpdate(a, agents, pursuitMatList[[r - 1]], coopMatPrev, groupishMat)
+          
+        }
+      }
+      
+      # COOPERATE #
+      
+      #convert pursuit mat into the coop probabilities
+      coopProbs <- pursuitMat
+      coopProbs <- ifelse(coopProbs == 0, probCoopNon, probCoopGroup)
+      
+      #now agents decide whether to cooperate with each other agent
+      coopMat <- matrix(rbinom(popSize^2, 1, coopProbs), nrow = popSize)
+      diag(coopMat) <- NA
+
+      #make that the new last coop to be referenced in next round
+      coopMatPrev <- coopMat
+      
+  
+      # GAME #
+      
+      #get matrix of only reciprocated pursuits
+      friendsMatrix <- pursuitMat * t(pursuitMat)
+      diag(friendsMatrix) <- 0
+      
+      #randomly pick one agent to play game
+      gamer <- sample(popSize, 1)
+      
+      for (i in sample(1:popSize)) {
+        
+        #randomly pick one agent to play game
+        gamer <- i
+        
+        #pull indices of agents' reciprocated ties
+        gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+        
+        #add the gamer to the group indices
+        gamerGroup <- c(gamerGroup, gamer)
+        
+        #subset the friends matrix to include only those in group
+        gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+        
+        #change the names back to original indices
+        rownames(gamersMat) <- gamerGroup
+        colnames(gamersMat) <- gamerGroup
+        
+        #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
+        #Game happens only if all agents agree
+        if (nrow(gamersMat) == (numPursuits + 1) &
+            prod(rbinom(
+              nrow(gamersMat),
+              1,
+              rowSums(gamersMat, na.rm = T) / nrow(gamersMat)
+            )) == 1) {
+          
+          #calculate the payoff each agent will receive
+          agents <- payoff(gamersMat, gamerGroup, agents)
+          
+        }
+        
+      }
+      
+    } #round
+    
+    # SAVE DATA #
+    
+    #get names of prim combos
+    # agents <- agents %>%
+    #   mutate(
+    #     primCombo = paste0(
+    #       ifelse(alliance == 1, "A", ""),
+    #       ifelse(generalization == 1, "G", ""),
+    #       ifelse(displacement == 1, "P", ""),
+    #       ifelse(defense == 1, "D", "")
+    #     ),
+    #     primCombo = ifelse(primCombo == "", "XX", primCombo)
+    #   )
+    # 
+    
+    #bind the results to the results df
+    # resultsList[[counter]] <- agents %>%
+    #   summarise(across(alliance:defense, ~ mean(.) * 100)) %>%
+    #   pivot_longer(everything(), names_to = "prim", values_to = "percent") %>%
+    #   mutate(loop = m,
+    #          generation = g)
+    
+  resultsList[[counter]] <- agents %>%
+  mutate(primTot = alliance + defense +displacement + defense) %>%
+  count(primTot, name = "n") %>%
+    mutate(loop = m,
+           generation = g)
+    
+    print(resultsList[[counter]])
+
+    counter <- counter + 1
+    
+    agentsPrevious <- agents
+    
+    # Reproduce #
+    agents <- reproduce(agents, selStrength, popSize)
+    
+    
+  } #gen
+  
+} #loop
+
+results <- bind_rows(resultsList)
+results$pG <- probCoopGroup
+results$pN <- probCoopNon
+results$numRounds <- rounds
+results$numPursuits <- numPursuits
+results$flipProb <- flipProb
+
+
+#get the last loop number so it can be added to current
+if(file.exists(masterPath)){
+  existing <- read.csv(masterPath)
+  loop_offset <- max(existing$loop)
+} else {
+  loop_offset <- 0
+}
+
+#add offset to loop number in new results
+results$loop <- results$loop + loop_offset
+
+#append the results
+write.table(results, 
+            file = masterPath,
+            append = TRUE,
+            sep = ",",
+            col.names = !file.exists(masterPath),
+            row.names = FALSE)
+
+```
+
+
+#Analysis
+```{r analysis}
+
+results <- read.csv(masterPath)
+
+analysis <- results %>%
+  group_by(prim, generation) %>%
+  summarise(percent = mean(percent),
+            sd = sd(percent, na.rm = T)
+           )
+
+ggplot(data = results,
+             aes(x = generation,
+                 y = percent,
+                 group = prim,
+                 color = prim)) +
+  labs(x = "generation",
+       y = "% agents using prim",
+       title = "Percent of agents using each prim across generations", 
+  subtitle = "averaged across 17 loops",
+  caption = "pG = 0.2, 
+  pN = 0.1, 
+  rounds = 750, 
+  pursuits = 7, 
+  flipProb = 0.005") +
+  geom_smooth(aes(fill = prim)) +
+  theme_minimal()
+
+ggplot(data = results,
+             aes(x = generation,
+                 y = percent,
+                 group = prim,
+                 color = prim)) +
+  labs(x = "generation",
+       y = "% agents using prim",
+       title = "Percent of agents using each prim across generations", 
+  subtitle = "for 17 loops",
+  caption = "pG = 0.2, 
+  pN = 0.1, 
+  rounds = 750, 
+  pursuits = 7, 
+  flipProb = 0.005") +
+  geom_line() +
+  theme_minimal() +
+  facet_wrap(~loop)
+
+
+ggplot(data = analysis,
+       aes(x = generation,
+           y = percent,
+           group = prim,
+           color = prim)) +
+  geom_line() 
+
+p1 <- ggplot(data = results,
+               aes(x = generation,
+                   y = percent,
+                   color = prim)) +
+  labs(x = "Generation",
+       y = "Mean agents using prim",
+       color = "Phenotype") +
+  geom_line() +
+  # geom_text(
+  #   data = results_labs,
+  #   aes(label = prim),
+  #   hjust = -0.1,
+  #   size = 4,
+  #   fontface = "bold"
+  #) +
+#  xlim(min(results$generation), max(results$generation) + 0.5) +  # Give space for labels
+  theme_minimal() +
+  facet_wrap(~loop)
+
+
+
+#Pursuits#
+
+#convert pursuitMats to include only reciprocated pursuits
+recipMats <- lapply(pursuitMatList, function(mat) mat * t(mat))
+
+#append the agent's number of reciprocated ties at the last round
+agents$tiesFinal <- rowSums(recipMats[[rounds]])
+
+#sum prims
+agents$totPrims <- rowSums(agents[,3:6])
+
+#get correlation between number of ties and number of prims
+cor(agents$ties, agents$totPrims)
+
+
+#Cooperations#
+
+#make df with the coops sent and received
+analDF <- data.frame(round = rep(1:rounds, each = popSize),
+                     id = rep(1:popSize, rounds),
+                     cRec = NA,
+                     cSent = NA)
+
+#compute the sents & recs for each round
+sentList <- lapply(coopMatList, rowSums)
+recList  <- lapply(coopMatList, colSums)
+
+#bind it to the analysis df
+analDF$cSent <- unlist(sentList)
+analDF$cRec  <- unlist(recList)
+
+#bind the agents' strat
+analDF <- merge(analDF, agents, by = "id", all.x = T)
+
+#fix the ordering
+analDF <- analDF %>% arrange(round, id)
+
+#make the ratio of sent to received
+analDF$ratio <- analDF$cRec/analDF$cSent
+
+#turn NaNs into 0
+analDF$ratio[is.nan(analDF$ratio)] <- 0
+
+analDF %>%
+  group_by(totPrims) %>%
+  summarise(meanRec = mean(cRec),
+            sdRec = sd(cRec),
+            meanSent = mean(cSent),
+            sdSent = sd(cSent),
+            meanRatio = mean(ratio),
+            sdRatio = sd(ratio),
+            meanTies = mean(tiesFinal),
+            sdTies = sd(tiesFinal),
+            meanPayoff = mean(payoff),
+            sdPayoff = sd(payoff))
+
+
+
+```
+
+#Network#
+```{r network}
+
+lastPlot <- graph_from_adjacency_matrix(friendsMatrix)
+
+agentsPrevious$totPrims <- rowSums(agentsPrevious[,3:6])
+agentsPrevious$totPrims[agentsPrevious$primCombo == "XX"] <- 0
+
+agentsPrevious$color <- NA
+
+agentsPrevious$color[agentsPrevious$totPrims == 0] <- "red"
+agentsPrevious$color[agentsPrevious$totPrims == 1] <- "orange"
+agentsPrevious$color[agentsPrevious$totPrims == 2] <- "yellow"
+agentsPrevious$color[agentsPrevious$totPrims == 3] <- "lightgreen"
+agentsPrevious$color[agentsPrevious$totPrims == 4] <- "darkgreen"
+
+# agentsPrevious$color[agentsPrevious$av <= 0.355] <- "red"
+# agentsPrevious$color[agentsPrevious$av > 0.355 & agentsPrevious$av <= 0.458] <- "orange"
+# agentsPrevious$color[agentsPrevious$av > 0.458 & agentsPrevious$av <= 0.51] <- "yellow"
+# agentsPrevious$color[agentsPrevious$av == 3] <- "lightgreen"
+# agentsPrevious$color[agentsPrevious$av == 4] <- "darkgreen"
+
+#create vector of unique association values in order
+# associationVals <- round(agentsPrevious$av, digits = 2)
+# associationVals <- sort(unique(agentsPrevious$av))
+
+pal <- colorRampPalette(c("red", "yellow", "green"))
+n_colors <- 256
+av_range <- seq(min(agentsPrevious$av), max(agentsPrevious$av), length.out = n_colors)
+cols <- pal(n_colors)[pmax(1, findInterval(agentsPrevious$av, av_range))]
+agentsPrevious$color <- cols
+
+
+
+V(lastPlot)$color <- agentsPrevious$color
+V(lastPlot)$totPrims <- agentsPrevious$totPrims
+V(lastPlot)$av <- agentsPrevious$av * 100
+
+plot(lastPlot,
+     layout = layout_with_kk,
+     #vertex.label = NA,
+     #  rescale = F,
+     layout = layout_with_kk,
+     vertex.size = 8,
+     #vertex.color = vertex.color,
+     vertex.label.color = "black",
+     vertex.shape = "circle",
+     edge.arrow.mode = "-")
+
+assortativity(lastPlot, V(lastPlot)$av)
+
+
+# Number of Cliques #
+
+cliquesList <- max_cliques(lastPlot, min = 3)
+
+groupSizes <- lengths(cliquesList)
+
+groupStrats <- lapply(cliquesList, function(vs) {
+  V(lastPlot)[vs]$totPrims
+})
+
+data.frame(
+  group_id = seq_along(cliquesList),
+  size = lengths(cliquesList),
+  strategies = I(groupStrats)
+)
+
+# Ego Density #
+
+#get the density of each agent's ego network
+ego_dens <- sapply(V(lastPlot), function(v) {
+  ego_g <- induced_subgraph(lastPlot, c(v, neighbors(lastPlot, v)))
+  edge_density(ego_g)
+})
+
+# get the number of edges in each agent's ego network
+ego_edges <- sapply(V(lastPlot), function(v) {
+  ego_g <- induced_subgraph(lastPlot, c(v, neighbors(lastPlot, v)))
+  ecount(ego_g)
+})
+
+#bind to agent df
+agents$egoDensity <- ego_dens
+agents$egoDensity[is.nan(agents$egoDensity)] <- 0
+
+#means by prim tot
+agents %>%
+  group_by(totPrims) %>%
+  summarise(meanDensity = mean(egoDensity),
+            sdDensity = sd(egoDensity))
+
+
+#get the degree for each agent
+deg <- degree(lastPlot)
+
+clust <- transitivity(lastPlot, type = "local")
+
+clust[is.na(clust)] <- 0
+
+groupStrength <- deg * clust
+
+agents$groupStrength <- groupStrength
+
+#means by prim tot
+agents %>%
+  group_by(totPrims) %>%
+  summarise(meanGroupS = mean(groupStrength),
+            sdGroupS = sd(groupStrength))
+
+
+```
+
+#Total Plots
+```{r}
+res1 <- read.csv("results_mar_2.csv")
+res2 <- read.csv("results_mar_4.csv")
+res3 <- read.csv("results_mar_6.csv")
+res4 <- read.csv("results_mar_7.csv")
+
+res2$loop <- res2$loop + 2
+res3$loop <- res3$loop + 4
+res4$loop <- res4$loop + 6
+
+resTot <- rbind(res1, res2, res3, res4)
+
+#calc prim tot
+resTot$primTot <- nchar(resTot$primCombo)
+resTot$primTot[resTot$primCombo == "XX"] <- 0
+resTot$primTot <- as.factor(resTot$primTot)
+
+
+#summarised plot with combo
+resAvg <- resTot %>%
+  group_by(generation, primCombo) %>%
+  summarise(n = mean(n), .groups = "drop")
+
+ggplot(resAvg, aes(x = generation,
+                             y = n,
+                             group = primCombo)) +
+  
+  geom_line(aes(color = primCombo)) +
+  labs(x = "generation",
+       y = "number of agents")+
+  theme_bw()
+
+#summarised plot with combo
+primTotsDF <- resTot %>%
+  group_by(loop, generation, primTot) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+resAvg2 <- primTotsDF %>%
+  group_by(generation, primTot) %>%
+  summarise(n = mean(n), .groups = "drop")
+
+ggplot(resAvg2, aes(x = generation,
+                             y = n,
+                      color = primTot)) +
+  geom_smooth(aes(color = primTot)) +
+  labs(x = "generation",
+       y = "number of agents")+
+  theme_bw()
+
+
+
+
+
+
+```
+
+#Posterior Beliefs
+```{r}
+#collapse number of pursuits
+totalPursued <- Reduce("+", pursuitMatList)
+
+
+```
+
