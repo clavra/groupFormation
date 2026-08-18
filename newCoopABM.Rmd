@@ -245,6 +245,9 @@ posteriorGroup <- function(prior, probCoopGroup, probCoopNon, coop){
 
 transUpdate <- function(agent, agentsDF, pursuitMatrix, cooperationMatrix, groupMat){
   
+  #set diagonal to NA so it doesn't count against the agent that they don't cooperate with themselves
+  diag(cooperationMatrix) <- 0
+  
   #get the prims they use
   primCols <- c("alliance", "generalization", "displacement", "defense")
   primStrat <- primCols[agentsDF[agent, primCols] == 1]
