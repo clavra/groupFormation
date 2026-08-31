@@ -1,0 +1,669 @@
+---
+title: "conflictABM"
+author: "Clara Lavrador"
+date: "2026-05-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages}
+
+library(dplyr)
+library(igraph)
+library(tidyverse)
+```
+
+
+#Parameters
+```{r parameters}
+
+#number of agents
+popSize = 100
+
+#number of pursuits agents can make
+numPursuits = 7
+
+#number of enemies
+numEnemies = 7
+
+#number of rounds
+rounds = 500
+
+#probability of attacking enemy
+probAttackEnemy = 0.2
+
+#probability of attacking nonenemy
+probAttackNon = 0.1
+
+#number of generations
+generations = 1
+
+#number of loops
+modelLoops = 1
+
+multiplier = 1.4
+
+#strength of selection
+selStrength = 10
+
+#probability of a strat flipping
+flipProb = 0.002
+
+#prim combo abbreviations 
+#list the prim combo abbreviations in order to append later
+primCombos <- c("A",
+"P",
+"D",
+"G",
+"AP",
+"AD",
+"AG",
+"PD",
+"PG",
+"DG",
+"APD",
+"APG",
+"ADG",
+"PDG",
+"APDG",
+"XX")
+
+primComboDF <- data.frame("combo" =  primCombos,
+                             "tot" = NA)
+
+primComboDF$tot <- nchar(primComboDF$combo)
+
+primComboDF$tot[primComboDF$combo == "XX"] <- 0
+
+#we need popSize/5 of each prim tot
+tots <- unlist(lapply(unique(primComboDF$tot), function(i) {
+  sample(primComboDF$combo[primComboDF$tot == i], 
+         popSize/5, 
+         replace = TRUE)
+}))
+
+#write the path the CSV will save to
+#masterPath <- "G:/My Drive/groupFormationResults/Actual Results/masterResultsM.csv"
+
+```
+
+#Functions
+```{r functions}
+
+#Agent generate function#
+
+agentGenerate <- function(n){
+
+  #agent IDs
+  id <- c(1:n)
+
+  #association value
+  av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+  av <- av/100
+
+  #strats
+  # alliance <- rbinom(n, 1, 0.5)
+  # generalization <- rbinom(n, 1, 0.5)
+  # displacement <- rbinom(n, 1, 0.5)
+  # defense <- rbinom(n, 1, 0.5)
+  
+  alliance <- 1
+  generalization <- 1
+  displacement <- 1
+  defense <- 1
+
+  # alliance <- c(rep(c(0,1), each = popSize/2))
+  # generalization <- c(rep(c(0,1), each = popSize/2))
+  # displacement <- c(rep(c(0,1), each = popSize/2))
+  # defense <- c(rep(c(0,1), each = popSize/2))
+
+  payoff <- 0
+
+  agents <- data.frame(id, av, alliance, generalization, displacement, defense, payoff)
+
+  return(agents)
+
+}
+
+
+#diff agent generate function that makes number of prims in strat equal in population
+# agentGenerate <- function(n){
+# 
+#   #agent IDs
+#   id <- c(1:n)
+# 
+#   #association value
+#   av <- round(abs(rnorm(n, mean = 50, sd = 10)), digits = 2)
+#   av <- av/100
+#   
+#   #strategy
+#   combo <- sample(tots, size = n, replace = F)
+# 
+#   #strats
+#   alliance <- NA
+#   generalization <- NA
+#   displacement <- NA
+#   defense <- NA
+# 
+#   payoff <- 0
+# 
+#   agentDF <- data.frame(id, av, combo, alliance, generalization, displacement, defense, payoff)
+#   
+#   #map each letter to its prim
+#   primMap <- c(
+#     alliance = "A",
+#     generalization = "G",
+#     displacement = "P",
+#     defense = "D"
+#   )
+#   
+#   #fill in binary prim cols based on letters in combo
+#   agentDF[names(primMap)] <-
+#     sapply(primMap, function(letter) {
+#       as.integer(grepl(letter, agentDF$combo))
+#     })
+# 
+#   #delete combo col
+#   agentDF <- agentDF[-c(3)]
+# 
+#   return(agentDF)
+# 
+# }
+
+
+#Association Matrix#
+#make association mat so that there is noise in how AVs are perceived by others
+
+makeAssociationMat <- function(agentsDF, sd){
+  
+  associationMat <- matrix(, nrow = popSize, ncol = popSize)
+  
+  for(a in 1:nrow(agentsDF)){
+    
+    associationMat[,a] <-  rnorm(popSize, mean = agentsDF$av[a], sd = sd)
+    
+  }
+  
+  diag(associationMat) <- NA
+  
+  return(associationMat)
+  
+}
+
+
+
+#Transitive Inference#
+#Optimized version of transUpdate
+
+transUpdate <- function(agent, agentsDF, pursuitMatrix, attackMatrix, enemyMatrix){
+  
+  #make the attack matrix diagonal NA
+  diag(attackMatrix) <- NA
+  
+  #get the prims they use
+  primCols <- c("alliance", "generalization", "displacement", "defense")
+  primStrat <- primCols[agentsDF[agent, primCols] == 1]
+  
+  #pull the indices of the agents that the focal agent hates most
+  enemies <- which(pursuitMatrix[agent, ] == -1)
+  
+  #vector of enemies that focal agent attacked
+  sentAttacks <- enemies[attackMatrix[agent,enemies] == 1]
+  
+  #vector of enemies that attacked focal agent 
+  recAttacks <- enemies[attackMatrix[enemies,agent] == 1] 
+  
+  posUpdate <- c()
+  negUpdate <- c()
+  
+  #Alliance#
+  #focal agent asks: who else attacked the agents I attacked?
+  if("alliance" %in% primStrat && length(sentAttacks) > 0){
+    subMat <- attackMatrix[, sentAttacks, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
+  }
+  
+  #Displacement#
+  #focal agent asks: who did the agents I attacked attack?
+  if("displacement" %in% primStrat && length(sentAttacks) > 0){
+    subMat <- attackMatrix[sentAttacks, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
+  }
+  
+  #Defense#
+  #focal agent asks: who attacked the agents who attacked me?
+  if("defense" %in% primStrat && length(recAttacks) > 0){
+    subMat <- attackMatrix[, recAttacks, drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "row"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "row"])
+  }
+  
+  #Generalization#
+  #focal agent asks: who else did the agents who attacked me attack?
+  if("generalization" %in% primStrat && length(recAttacks) > 0){
+    subMat <- attackMatrix[recAttacks, , drop = FALSE]
+    posUpdate <- c(posUpdate, which(subMat == 1, arr.ind = TRUE)[, "col"])
+    negUpdate <- c(negUpdate, which(subMat == 0, arr.ind = TRUE)[, "col"])
+  }
+  
+  #remove self
+  posUpdate <- posUpdate[posUpdate != agent]
+  negUpdate <- negUpdate[negUpdate != agent]
+  
+  #update for each occurrence
+  
+  #neg update (increase enemy prob)
+  if(length(negUpdate) > 0){
+    for(agentName in negUpdate){
+      prior <- enemyMatrix[agent, agentName]
+      num <- prior * (1 - probAttackNon)
+      enemyMatrix[agent, agentName] <- num / (num + (1 - prior) * (1 - probAttackEnemy))
+    }
+  }
+  
+  #pos update (decrease enemy prob)
+  if(length(posUpdate) > 0){
+    for(agentName in posUpdate){
+      prior <- enemyMatrix[agent, agentName]
+      num <- prior * probAttackNon 
+      enemyMatrix[agent, agentName] <- num / (num + (1 - prior) * probAttackEnemy)
+    }
+  }
+  
+  return(enemyMatrix)
+  
+}
+
+
+#Contributions#
+
+payoff <- function(gameMatrix, gamers, agentDF){
+  
+  #start the sum
+  contributionTot <- 0
+  
+  #for each agent...
+  for(agent in gamers){
+    
+    #their max contribution is their association value
+    maxContribution <- agentDF$av[row.names(agentDF) == agent] * 100
+    
+    #get the percent of the AV they will contribute, which is proportional to number of recip ties within group
+    proportionTied <- if (nrow(gameMatrix) > 1) sum(gameMatrix[as.character(agent), ])/(nrow(gameMatrix)-1) else 0
+    
+    #calculate their contribution 
+    contribution <- maxContribution * proportionTied
+    
+    #add their total contribution to those of the other agents
+    contributionTot <- contributionTot + contribution
+    
+    #add their noncontributed pay to their corresponding slot in payoff vector (what they keep)
+    agentDF$payoff[as.numeric(agent)] <- agentDF$payoff[as.numeric(agent)] + (maxContribution - contribution)
+    
+  }
+  
+  contributionTot <- contributionTot * multiplier
+  
+  #divide the pooled contributions by the number of agents in the group
+  basePay <- contributionTot/nrow(gameMatrix)
+  
+  agentDF$payoff[as.numeric(gamers)] <- agentDF$payoff[as.numeric(gamers)] + basePay
+  
+  #return the payoff vector
+  return(agentDF)
+  
+}
+
+#Reproduction#
+
+reproduce <- function(agentDF, selStrength, n){
+  
+  #rescale payoffs to be between 0-1
+  agentDF$payoff <- agentDF$payoff - min(agentDF$payoff)
+  agentDF$payoff <- agentDF$payoff/max(agentDF$payoff)
+  
+  #add constant to prob weight to fix strength of selection
+  agentDF$payoff <- agentDF$payoff + (1/selStrength) #the bigger the decimal, the larger the diff in probability
+  
+  #generate random offspring
+  offspringDF <- agentDF[sample(1:nrow(agentDF), n, replace = T, prob = agentDF$payoff),] #the bigger the decimal, the larger the diff
+  
+  #Reset IDs
+  row.names(offspringDF) <- 1:n
+  
+  offspringDF$id <- 1:n
+  
+  #Reset payoff vec
+  offspringDF$payoff <- 0
+  
+  #Mutation:
+  
+  #for each agent...
+  for (a in 1:nrow(offspringDF)) {
+    
+    #change their association value to be within certain SD of original parent AV
+    association_value <- rnorm(1, mean = offspringDF$av[a], sd = .01)
+    
+    #don't let association value get above 1
+    association_value <- ifelse(association_value > 1, 1 - (association_value - 1), association_value)
+    
+    #don't let association value get below 0
+    association_value <- ifelse(association_value < 0, 0 + abs(association_value), association_value)
+    
+    #assign the new mutated association value
+    offspringDF$av[a] <- association_value
+    
+    #flip each trait or nah and replace into corresponding cells
+    offspringDF[a, 3:6] <- (offspringDF[a, 3:6] + rbinom(4, 1, flipProb)) %% 2
+    
+   }
+  
+  offspringDF <- offspringDF[-c(8)]
+  
+  return(offspringDF)
+  
+}
+
+
+
+
+
+
+```
+
+#Life Cycle
+```{r lifeCycle} 
+
+#analysis dataframe
+# results <- data.frame(
+#   "loop" = rep(1:modelLoops, each = generations*length(primCombos)),
+#   "generation" = rep(1:generations),
+#   "primCombo" = rep(primCombos))
+
+
+resultsList <- list()
+counter <- 1
+
+# START #
+
+for (m in 1:modelLoops) {
+  
+  print(m)
+  
+  #birth the agents
+  agents <- agentGenerate(popSize)
+  
+  # GENERATION #
+  
+  for (g in 1:generations) {
+    
+    print(g)
+    
+    #generate association mat so agents see each other's av a bit differently
+    associationMat <- makeAssociationMat(agents, 0.10)
+    
+    #matrix that holds each agent's perceived enemy status with each other agent
+    enemyMat <- matrix((numEnemies / popSize), nrow = popSize, ncol = popSize)
+    diag(enemyMat) <- NA
+    
+    #this is just so i can see what's going on; not referenced
+    enemyMatList <- list(enemyMat)
+  
+    #pursuit matrix list of noncumulative interactions
+     pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+     diag(pursuitMat) <- NA
+    pursuitMatList <- list(pursuitMat)
+    
+    #matrix that holds attacks to be backreferenced for previous rounds
+    attackMatPrev <- matrix(0, nrow = popSize, ncol = popSize)
+    diag(attackMatPrev) <- NA
+
+    
+    # ROUNDS #
+    
+    for (r in 2:rounds) {
+      
+      #make the empty new pursuit matrix
+      pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(pursuitMat) <- NA
+      
+      attackMat <- matrix(0, nrow = popSize, ncol = popSize)
+      diag(attackMat) <- NA
+      
+      # PURSUE # 
+      
+      #only update groupishness for rounds after 2 when attack actually occurs
+      if (r > 2) {
+        
+        #calculate inimicality based on last round's attacks
+        
+        #bayesian updating when there was an attack
+        num1 <- enemyMat * probAttackEnemy
+        den1 <- num1 + (1 - enemyMat) * probAttackNon
+        
+        #bayesian updating when there was NOT an attack
+        num0 <- enemyMat * (1 - probAttackEnemy)
+        den0 <- num0 + (1 - enemyMat) * (1 - probAttackNon)
+        
+        #update the enemy matrix
+        enemyMat <- ifelse(t(attackMatPrev) == 1, num1 / den1, num0 / den0)
+
+        
+      }
+      
+      #each agent chooses k other agents to pursue
+      for (a in 1:popSize) {
+    
+        #pull others' groupishness values
+        groupVals <- 1.01 - enemyMat[a, ]
+        
+        #pull others' association values from the perspective of a
+        assocVals <- associationMat[a, ]
+        
+        #calculate the pursuit scores by combining association and reciprocity
+        pursuitScores <- assocVals * groupVals
+        
+        #nullify their own
+        pursuitScores[a] <- NA
+        
+        #order from highest to lowest scores
+        pursuit_indices <- order(-pursuitScores)[1:numPursuits]
+        
+        #add 1 to their pursuits in the pursuit matrix
+        pursuitMat[a, pursuit_indices] <- 1
+        
+        #order from lowest to highest scores
+        enemies_indices <- order(pursuitScores)[1:numEnemies]
+        
+        #add -1 to their enemies in the pursuit matrix
+        pursuitMat[a, enemies_indices] <- -1
+        
+        
+      }
+      
+      #bind the pursuit mat to the list
+      pursuitMatList[[r]] <- pursuitMat ## why do i need previous pursuit mat?
+      
+      # TRANSITIVE INFERENCES #
+      #whoever i just declared my enemies, what were their attacks like last round?
+      
+      #only for rounds after 2
+      if (r > 2) {
+        
+        for (a in 1:popSize) {
+          
+          #update the groupishness of their third party relationships based in accordance with their prim strats
+          enemyMat <- transUpdate(a, agents, pursuitMat, attackMatPrev, enemyMat)
+          
+        }
+        
+      #again, just so i can keep track
+      enemyMatList[[r]] <- enemyMat
+      
+      }
+      
+     
+      
+      # ATTACK #
+      
+      #convert pursuit mat into the attack probabilities
+      attackProbs <- pursuitMat
+      attackProbs <- ifelse(attackProbs == -1, probAttackEnemy, probAttackNon)
+      
+      #now agents decide whether to cooperate with each other agent
+      attackMat <- matrix(rbinom(popSize^2, 1, attackProbs), nrow = popSize)
+      diag(attackMat) <- NA
+
+      #make that the new last coop to be referenced in next round
+      attackMatPrev <- attackMat
+      
+  
+      # GAME #
+      
+      #get matrix of only reciprocated pursuits
+      friendsMatrix <- pursuitMat
+      friendsMatrix[friendsMatrix == -1] <- 0
+      friendsMatrix <- friendsMatrix * t(friendsMatrix)
+      diag(friendsMatrix) <- 0
+      
+      
+      for (i in sample(1:popSize)) {
+        
+        #randomly pick one agent to play game
+        gamer <- i
+        
+        #pull indices of agents' reciprocated ties
+        gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+        
+        #add the gamer to the group indices
+        gamerGroup <- c(gamerGroup, gamer)
+        
+        #subset the friends matrix to include only those in group
+        gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+        
+        #change the names back to original indices
+        rownames(gamersMat) <- gamerGroup
+        colnames(gamersMat) <- gamerGroup
+        
+        #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
+        #Game happens only if all agents agree
+        if (nrow(gamersMat) == (numPursuits + 1) &
+            prod(rbinom(
+              nrow(gamersMat),
+              1,
+              rowSums(gamersMat, na.rm = T) / nrow(gamersMat)
+            )) == 1) {
+          
+          #calculate the payoff each agent will receive
+          agents <- payoff(gamersMat, gamerGroup, agents)
+          
+        }
+        
+      }
+      
+    } #round
+    
+    # SAVE DATA #
+    
+    resultsList[[counter]] <- agents %>%
+      mutate(loop = m, generation = g)
+    
+    #just so i can see while it is running
+    print(
+      agents %>%
+        mutate(primTot = alliance + defense + displacement + defense) %>%
+        count(primTot, name = "n")
+    )
+    
+    counter <- counter + 1
+    
+    agentsPrevious <- agents
+    
+    # Reproduce #
+    agents <- reproduce(agents, selStrength, popSize)
+    
+    
+  } #gen
+  
+} #loop
+
+# results <- bind_rows(resultsList)
+# results$pG <- probCoopGroup
+# results$pN <- probCoopNon
+# results$numRounds <- rounds
+# results$numPursuits <- numPursuits
+# results$flipProb <- flipProb
+# 
+# 
+# #get the last loop number so it can be added to current
+# if(file.exists(masterPath)){
+#   existing <- read.csv(masterPath)
+#   loop_offset <- max(existing$loop)
+# } else {
+#   loop_offset <- 0
+# }
+# 
+# #add offset to loop number in new results
+# results$loop <- results$loop + loop_offset
+# 
+# #append the results
+# write.table(results, 
+#             file = masterPath,
+#             append = TRUE,
+#             sep = ",",
+#             col.names = !file.exists(masterPath),
+#             row.names = FALSE)
+
+```
+
+```{r}
+
+#see the average enemy prob across generations
+eneMean <- data.frame("round" = 1:500,
+                      "enemyProb" = NA)
+
+for(i in 1:length(enemyMatList)){
+  
+  eneMean$enemyProb[i] <- mean(enemyMatList[[i]], na.rm = T)
+  
+  
+}
+
+table(round(enemyMat, digits = 1))
+
+network <- graph_from_adjacency_matrix(friendsMatrix)
+
+cliques(network, min = 2)
+
+
+
+
+
+
+
+##############
+networkMat <- enemyMat
+networkMat <- round(networkMat, digits = 0)
+#networkMat <- ifelse(networkMat == 1,0,1)
+#friendsMatrix <- friendsMatrix * t(friendsMatrix)
+diag(networkMat) <- 0
+
+networkPlot <- graph_from_adjacency_matrix(networkMat, diag = F,  mode = "max")
+
+plot(networkPlot, arrow.size = 0.2, width = 0.5)
+
+
+##########
+
+
+
+
+```
+
+
