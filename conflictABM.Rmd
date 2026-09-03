@@ -9,12 +9,56 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## Model Overview
+
+### Life Cycle
+
+1. Pursue
+2. Initial Attacks
+3. Contingent Attacks
+4. Game
+5. Update Enmity 
+
+#### Pursue
+
+Agents will combine other agents' association value with their enemy likelihood to produce a score for each agent.
+
+The n number with the highest scores will be the agent's "pursuits".
+
+The n number with the lowest scores will be the agent's "enemies".
+
+#### Initial Attacks
+
+Agents will decide whether to attack each other agent.
+
+The probability of attack will be higher for those that the agent defined as "enemies".
+
+#### Contingent Attacks
+
+Agents will be shown all initial attacks involving the agents they pursued. 
+
+They will fill whatever triadic primitive role is available where they are grouped with their pursuit.
+
+For those that their pursuits attacked, they will complete alliance or displacement.
+
+For those that attacked their pursuits, they will complete defense or generalization.
+
+Which of the two they complete depends on which is available. No double attacks (same attack from Intial Attacks round) are permitted. If one triad already exists from the Initial Attacks round, the other primitive will be completed. If both already exist, nothing happens. If neither exists, one is randomly selected.
+
+#### Game
+
+
+#### Update Enmity
+
+Agents will update the likelihood that each other agent is their enemy based on the previous attacks. 
+
+
 
 ```{r packages}
 
-library(dplyr)
-library(igraph)
-library(tidyverse)
+# library(dplyr)
+# library(igraph)
+# library(tidyverse)
 ```
 
 
@@ -22,22 +66,22 @@ library(tidyverse)
 ```{r parameters}
 
 #number of agents
-popSize = 100
+popSize = 50
 
 #number of pursuits agents can make
-numPursuits = 7
+numPursuits = 4
 
 #number of enemies
-numEnemies = 7
+numEnemies = 4
 
 #number of rounds
-rounds = 500
+rounds = 300
 
 #probability of attacking enemy
-probAttackEnemy = 0.2
+probAttackEnemy = 0.7
 
 #probability of attacking nonenemy
-probAttackNon = 0.1
+probAttackNon = 0.2
 
 #number of generations
 generations = 1
@@ -281,6 +325,108 @@ transUpdate <- function(agent, agentsDF, pursuitMatrix, attackMatrix, enemyMatri
 }
 
 
+contingentAttack <- function(agent, attackMatrix, pursuitMatrix){
+  
+  #pull the agent's pursuits
+  pursuits <- which(pursuitMatrix[agent,] == 1)
+  
+  #subset attack matrix to get just the attacks
+  idx <- which(attackMatrix == 1, arr.ind = TRUE)
+  
+  #pull those who pursuits attacked
+  victims <- idx[idx[, "row"] %in% pursuits, , drop = F]
+  victims <- unique(victims[,"col"])
+  
+  #pull those who attacked pursuits
+  attackers <- idx[idx[, "col"] %in% pursuits, , drop = F]
+  attackers <- unique(attackers[, "row"])
+  
+  #remove self, in case agent was attacked by/attacked the agent they pursued
+  victims <- victims[victims != agent]
+  attackers <- attackers[attackers != agent]
+  
+  if (length(victims > 0)) {
+    
+    #loop through each victim
+    for (i in 1:length(victims)) {
+      
+      #get the ID of the victim
+      vic = victims[i]
+      
+      #if the agent already attacked that victim...
+      if (attackMatrix[agent, vic] %in% c(1, 2) &
+          attackMatrix[vic, agent] == 0) {
+        
+        #that victim will attack the agent
+        attackMatrix[vic, agent] <- 2
+        
+        #if the agent was already attacked by that victim...
+      } else if (attackMatrix[agent, vic] == 0 &
+                 attackMatrix[vic, agent] %in% c(1, 2)) {
+        
+        #then agent will attack the victim
+        attackMatrix[agent, vic] <- 2
+        
+        #if there were no attacks between them
+      } else if (attackMatrix[agent, vic] == 0 &
+                 attackMatrix[vic, agent] == 0) {
+        
+        #randomly choose which will happen
+        ifelse(rbinom(1, 1, 0.5) == 0, attackMatrix[vic, agent] <- 2, attackMatrix[agent, vic] <- 2)
+        
+      }
+      
+    }
+    
+  }
+  
+  if (length(attackers > 0)) {
+    
+    #loop through each attacker
+    for (i in 1:length(attackers)) {
+      
+      #get the ID of the attacker
+      att = attackers[i]
+      
+      #if the agent already attacked that attacker...
+      if (attackMatrix[agent, att] %in% c(1, 2) &
+          attackMatrix[att, agent] == 0) {
+        
+        #that attacker will attack the agent
+        attackMatrix[att, agent] <- 2
+        
+        #if the agent was already attacked by that attacker...
+      } else if (attackMatrix[agent, att] == 0 &
+                 attackMatrix[att, agent] %in% c(1, 2)) {
+        
+        #then agent will attack the attacker
+        attackMatrix[agent, att] <- 2
+        
+        #if there were no attacks between them
+      } else if (attackMatrix[agent, att] == 0 &
+                 attackMatrix[att, agent] == 0) {
+        
+        #randomly choose which will happen
+        ifelse(rbinom(1, 1, 0.5) == 0, attackMatrix[att, agent] <- 2, attackMatrix[agent, att] <- 2)
+        
+      }
+      
+    }
+    
+  }
+
+  return(attackMatrix)
+  
+}
+
+#note that here I'm using a 2 to indicate the round 2 attacks. that way, the two agents involved
+#in the attack are able to see that that happened to prevent a double attack, while obscuring 
+#these round 2 attacks from third parties (only subset attackMat == 1)
+###might be interesting to keep the 2s and allow agents to distinguish contingent attacks,
+#but for now just turning the 2s into 1s once everyone is done.
+
+
+
 #Contributions#
 
 payoff <- function(gameMatrix, gamers, agentDF){
@@ -413,55 +559,38 @@ for (m in 1:modelLoops) {
     diag(enemyMat) <- NA
     
     #this is just so i can see what's going on; not referenced
-    enemyMatList <- list(enemyMat)
+    enemyMatList <- list()
   
-    #pursuit matrix list of noncumulative interactions
-     pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
-     diag(pursuitMat) <- NA
-    pursuitMatList <- list(pursuitMat)
-    
-    #matrix that holds attacks to be backreferenced for previous rounds
-    attackMatPrev <- matrix(0, nrow = popSize, ncol = popSize)
-    diag(attackMatPrev) <- NA
+    # #pursuit matrix list of noncumulative interactions
+    #  pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
+    #  diag(pursuitMat) <- NA
+    pursuitMatList <- list()
+    # 
+    # #matrix that holds attacks to be backreferenced for previous rounds
+    # attackMatPrev <- matrix(0, nrow = popSize, ncol = popSize)
+    # diag(attackMatPrev) <- NA
 
     
     # ROUNDS #
     
-    for (r in 2:rounds) {
+    for (r in 1:rounds) {
       
       #make the empty new pursuit matrix
       pursuitMat <- matrix(0, nrow = popSize, ncol = popSize)
       diag(pursuitMat) <- NA
       
-      attackMat <- matrix(0, nrow = popSize, ncol = popSize)
-      diag(attackMat) <- NA
-      
-      # PURSUE # 
-      
-      #only update groupishness for rounds after 2 when attack actually occurs
-      if (r > 2) {
-        
-        #calculate inimicality based on last round's attacks
-        
-        #bayesian updating when there was an attack
-        num1 <- enemyMat * probAttackEnemy
-        den1 <- num1 + (1 - enemyMat) * probAttackNon
-        
-        #bayesian updating when there was NOT an attack
-        num0 <- enemyMat * (1 - probAttackEnemy)
-        den0 <- num0 + (1 - enemyMat) * (1 - probAttackNon)
-        
-        #update the enemy matrix
-        enemyMat <- ifelse(t(attackMatPrev) == 1, num1 / den1, num0 / den0)
-
-        
-      }
-      
       #each agent chooses k other agents to pursue
       for (a in 1:popSize) {
-    
-        #pull others' groupishness values
-        groupVals <- 1.01 - enemyMat[a, ]
+        
+        if(r == 1){
+          
+          groupVals <- 1
+          
+        } else {
+          
+          groupVals <- 1.01 - enemyMat[a, ]
+          
+        }
         
         #pull others' association values from the perspective of a
         assocVals <- associationMat[a, ]
@@ -484,109 +613,128 @@ for (m in 1:modelLoops) {
         #add -1 to their enemies in the pursuit matrix
         pursuitMat[a, enemies_indices] <- -1
         
-        
       }
       
       #bind the pursuit mat to the list
-      pursuitMatList[[r]] <- pursuitMat ## why do i need previous pursuit mat?
+      pursuitMatList[[r]] <- pursuitMat ## just so i can analyze after
       
-      # TRANSITIVE INFERENCES #
-      #whoever i just declared my enemies, what were their attacks like last round?
       
-      #only for rounds after 2
-      if (r > 2) {
-        
-        for (a in 1:popSize) {
-          
-          #update the groupishness of their third party relationships based in accordance with their prim strats
-          enemyMat <- transUpdate(a, agents, pursuitMat, attackMatPrev, enemyMat)
-          
-        }
-        
-      #again, just so i can keep track
-      enemyMatList[[r]] <- enemyMat
-      
-      }
-      
-     
-      
-      # ATTACK #
+     # ROUND 1 ATTACKS #
       
       #convert pursuit mat into the attack probabilities
       attackProbs <- pursuitMat
       attackProbs <- ifelse(attackProbs == -1, probAttackEnemy, probAttackNon)
       
-      #now agents decide whether to cooperate with each other agent
+      #now agents decide whether to attack each other agent
       attackMat <- matrix(rbinom(popSize^2, 1, attackProbs), nrow = popSize)
-      diag(attackMat) <- NA
 
-      #make that the new last coop to be referenced in next round
-      attackMatPrev <- attackMat
-      
   
+     # ROUND 2 ATTACKS #
+      
+      #each agent looks at who their pursuits attacked/were attacked by, and complete triangle
+      for(a in sample(1:popSize)){
+        
+        #complete attack triangles
+        attackMat <- contingentAttack(a, attackMat, pursuitMat)
+          
+      }
+      
+      #once every agent did contingent attacks, rebinarize the matrix
+      attackMat[attackMat == 2] <- 1
+      
+      print(mean(rowSums(attackMat, na.rm = T)))
+        
+      
       # GAME #
       
-      #get matrix of only reciprocated pursuits
-      friendsMatrix <- pursuitMat
-      friendsMatrix[friendsMatrix == -1] <- 0
-      friendsMatrix <- friendsMatrix * t(friendsMatrix)
-      diag(friendsMatrix) <- 0
+      # #get matrix of only reciprocated pursuits
+      # friendsMatrix <- pursuitMat
+      # friendsMatrix[friendsMatrix == -1] <- 0
+      # friendsMatrix <- friendsMatrix * t(friendsMatrix)
+      # diag(friendsMatrix) <- 0
+      # 
+      # 
+      # for (gamer in sample(1:popSize)) {
+      #   
+      #   #pull indices of agents' reciprocated ties
+      #   gamerGroup <- which(friendsMatrix[gamer, ] == 1)
+      #   
+      #   #add the gamer to the group indices
+      #   gamerGroup <- c(gamerGroup, gamer)
+      #   
+      #   #subset the friends matrix to include only those in group
+      #   gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
+      #   
+      #   #change the names back to original indices
+      #   rownames(gamersMat) <- gamerGroup
+      #   colnames(gamersMat) <- gamerGroup
+      #   
+      #   #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
+      #   #Game happens only if all agents agree
+      #   if (nrow(gamersMat) == (numPursuits + 1) &
+      #       prod(rbinom(
+      #         nrow(gamersMat),
+      #         1,
+      #         rowSums(gamersMat, na.rm = T) / nrow(gamersMat)
+      #       )) == 1) {
+      #     
+      #     #calculate the payoff each agent will receive
+      #     agents <- payoff(gamersMat, gamerGroup, agents)
+      #     
+      #   }
+      #   
+      # }
       
+      # UPDATE INIMITY # 
+
+      #calculate enmity based on last round's direct attacks
       
-      for (i in sample(1:popSize)) {
+      #bayesian updating when there was an attack
+      num1 <- enemyMat * probAttackEnemy
+      den1 <- num1 + (1 - enemyMat) * probAttackNon
+      
+      #bayesian updating when there was NOT an attack
+      num0 <- enemyMat * (1 - probAttackEnemy)
+      den0 <- num0 + (1 - enemyMat) * (1 - probAttackNon)
+      
+      #update the enemy matrix
+      enemyMat <- ifelse(t(attackMat) == 1, num1 / den1, num0 / den0)
+      
+      #calculate enmity transitively
+      
+      #for each agent
+      for(a in 1:popSize){
         
-        #randomly pick one agent to play game
-        gamer <- i
-        
-        #pull indices of agents' reciprocated ties
-        gamerGroup <- which(friendsMatrix[gamer, ] == 1)
-        
-        #add the gamer to the group indices
-        gamerGroup <- c(gamerGroup, gamer)
-        
-        #subset the friends matrix to include only those in group
-        gamersMat <- friendsMatrix[gamerGroup, gamerGroup, drop = F]
-        
-        #change the names back to original indices
-        rownames(gamersMat) <- gamerGroup
-        colnames(gamersMat) <- gamerGroup
-        
-        #Agents decide whether to play a PG game proportional to number of reciprocated ties in group
-        #Game happens only if all agents agree
-        if (nrow(gamersMat) == (numPursuits + 1) &
-            prod(rbinom(
-              nrow(gamersMat),
-              1,
-              rowSums(gamersMat, na.rm = T) / nrow(gamersMat)
-            )) == 1) {
-          
-          #calculate the payoff each agent will receive
-          agents <- payoff(gamersMat, gamerGroup, agents)
-          
-        }
+        #update enmity with others based on their contingent attacks
+        enemyMat <- transUpdate(a, agents, pursuitMat, attackMat, enemyMat)
         
       }
+      
+      enemyMat <- round(enemyMat, digits = 5)
+      
+      enemyMatList[[r]] <- enemyMat
+      
       
     } #round
     
     # SAVE DATA #
     
-    resultsList[[counter]] <- agents %>%
-      mutate(loop = m, generation = g)
-    
-    #just so i can see while it is running
-    print(
-      agents %>%
-        mutate(primTot = alliance + defense + displacement + defense) %>%
-        count(primTot, name = "n")
-    )
-    
-    counter <- counter + 1
-    
-    agentsPrevious <- agents
-    
-    # Reproduce #
-    agents <- reproduce(agents, selStrength, popSize)
+    # resultsList[[counter]] <- agents %>%
+    #   mutate(loop = m, generation = g)
+    # 
+    # #just so i can see while it is running
+    # print(
+    #   agents %>%
+    #     mutate(primTot = alliance + defense + displacement + defense) %>%
+    #     count(primTot, name = "n")
+    # )
+    # 
+    # counter <- counter + 1
+    # 
+    # agentsPrevious <- agents
+    # 
+    # # Reproduce #
+    # agents <- reproduce(agents, selStrength, popSize)
     
     
   } #gen
